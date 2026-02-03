@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="skyGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#87CEEB"/>
+      <stop offset="100%" style="stop-color:#4A90D9"/>
+    </linearGradient>
+    <linearGradient id="snowGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#FFFFFF"/>
+      <stop offset="100%" style="stop-color:#E8E8E8"/>
+    </linearGradient>
+  </defs>
+  <!-- Background circle -->
+  <circle cx="50" cy="50" r="48" fill="url(#skyGrad)" stroke="#2563eb" stroke-width="2"/>
+  <!-- Mountain -->
+  <polygon points="50,20 85,75 15,75" fill="url(#snowGrad)" stroke="#64748b" stroke-width="1"/>
+  <polygon points="50,20 65,50 50,45 35,50" fill="#fff"/>
+  <!-- Ski tracks -->
+  <path d="M30,70 Q40,55 50,60 Q60,65 70,50" stroke="#f97316" stroke-width="2" fill="none" stroke-linecap="round"/>
+  <!-- Sun -->
+  <circle cx="78" cy="25" r="8" fill="#fbbf24"/>
+</svg>
