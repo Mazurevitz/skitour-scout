@@ -2,10 +2,11 @@
  * Bottom Sheet Component
  *
  * Draggable bottom sheet for mobile UI with snap points.
- * Global scroll/wheel controls the sheet position.
+ * Large touch target at top for easy swipe gestures.
  */
 
 import { useState, useRef, useEffect, useCallback, type ReactNode } from 'react';
+import { ChevronDown } from 'lucide-react';
 
 interface BottomSheetProps {
   children: ReactNode;
@@ -36,6 +37,7 @@ export function BottomSheet({
   const lastWheelTime = useRef(0);
 
   const currentHeight = snapPoints[currentSnap];
+  const isCollapsed = currentSnap === 0;
 
   const snapTo = useCallback((index: number) => {
     const clampedIndex = Math.max(0, Math.min(snapPoints.length - 1, index));
@@ -51,13 +53,11 @@ export function BottomSheet({
     const handleWheel = (e: WheelEvent) => {
       const now = Date.now();
 
-      // Reset accumulator if wheel stopped for a bit
       if (now - lastWheelTime.current > 200) {
         scrollAccumulator.current = 0;
       }
       lastWheelTime.current = now;
 
-      // Check if we're inside scrollable content that needs scrolling
       const content = contentRef.current;
       if (content) {
         const rect = content.getBoundingClientRect();
@@ -69,14 +69,11 @@ export function BottomSheet({
           const isAtTop = content.scrollTop <= 0;
           const isAtBottom = content.scrollTop + content.clientHeight >= content.scrollHeight - 1;
 
-          // If content is scrollable and not at boundary, let it scroll normally
           if (hasScrollableContent && !isAtTop && !isAtBottom) {
             return;
           }
 
-          // At top, scrolling up (deltaY < 0) - let content handle or collapse sheet
           if (isAtTop && e.deltaY < 0 && hasScrollableContent) {
-            // Collapse sheet (scroll up = sheet down)
             scrollAccumulator.current += Math.abs(e.deltaY);
             if (scrollAccumulator.current > 100 && currentSnap > 0) {
               snapTo(currentSnap - 1);
@@ -85,9 +82,7 @@ export function BottomSheet({
             return;
           }
 
-          // At bottom, scrolling down (deltaY > 0)
           if (isAtBottom && e.deltaY > 0) {
-            // Expand sheet (scroll down = sheet up)
             scrollAccumulator.current += Math.abs(e.deltaY);
             if (scrollAccumulator.current > 100 && currentSnap < snapPoints.length - 1) {
               snapTo(currentSnap + 1);
@@ -98,18 +93,15 @@ export function BottomSheet({
         }
       }
 
-      // Global scroll behavior (mouse over map or non-scrollable areas)
       scrollAccumulator.current += Math.abs(e.deltaY);
 
       if (scrollAccumulator.current > 100) {
         if (e.deltaY > 0) {
-          // Scroll DOWN → sheet goes UP (expand)
           if (currentSnap < snapPoints.length - 1) {
             snapTo(currentSnap + 1);
             e.preventDefault();
           }
         } else {
-          // Scroll UP → sheet goes DOWN (collapse)
           if (currentSnap > 0) {
             snapTo(currentSnap - 1);
             e.preventDefault();
@@ -122,7 +114,7 @@ export function BottomSheet({
     return () => window.removeEventListener('wheel', handleWheel);
   }, [currentSnap, snapPoints.length, snapTo]);
 
-  // Touch drag on handle
+  // Touch drag handlers
   const handleTouchStart = (e: React.TouchEvent) => {
     setIsDragging(true);
     startY.current = e.touches[0].clientY;
@@ -151,7 +143,8 @@ export function BottomSheet({
       }
     });
 
-    if (Math.abs(dragOffset) > 10) {
+    // Lower threshold for easier swiping (5% instead of 10%)
+    if (Math.abs(dragOffset) > 5) {
       if (dragOffset > 0 && closestSnap < snapPoints.length - 1) {
         closestSnap = Math.min(closestSnap + 1, snapPoints.length - 1);
       } else if (dragOffset < 0 && closestSnap > 0) {
@@ -165,7 +158,7 @@ export function BottomSheet({
     onSnapChange?.(closestSnap);
   };
 
-  // Mouse drag on handle
+  // Mouse drag handlers
   const handleMouseDown = (e: React.MouseEvent) => {
     setIsDragging(true);
     startY.current = e.clientY;
@@ -203,21 +196,49 @@ export function BottomSheet({
       }`}
       style={{ height: `${displayHeight}dvh` }}
     >
-      {/* Drag handle */}
+      {/* Large swipe area - easy to grab with thumb */}
       <div
-        className="flex-shrink-0 flex justify-center pt-3 pb-2 cursor-grab active:cursor-grabbing touch-none select-none"
+        className="flex-shrink-0 cursor-grab active:cursor-grabbing touch-none select-none"
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleDragEnd}
         onMouseDown={handleMouseDown}
       >
-        <div className="w-12 h-1.5 bg-gray-600 rounded-full" />
+        {/* Visual handle + hint */}
+        <div className="flex flex-col items-center pt-2 pb-1">
+          <div className="w-16 h-2 bg-gray-600 rounded-full mb-1" />
+          {!isCollapsed && (
+            <div className="flex items-center gap-1 text-xs text-gray-500">
+              <ChevronDown className="w-3 h-3" />
+              <span>Swipe for map</span>
+            </div>
+          )}
+        </div>
+
+        {/* Tap zones for quick snap */}
+        <div className="flex justify-center gap-3 pb-2">
+          {snapPoints.map((_, index) => (
+            <button
+              key={index}
+              onClick={(e) => {
+                e.stopPropagation();
+                snapTo(index);
+              }}
+              onTouchStart={(e) => e.stopPropagation()}
+              className={`w-2 h-2 rounded-full transition-colors ${
+                currentSnap === index ? 'bg-blue-500' : 'bg-gray-700'
+              }`}
+            />
+          ))}
+        </div>
       </div>
 
-      {/* Header */}
+      {/* Header content - interactive elements work normally */}
       {header && (
-        <div className="flex-shrink-0 px-4 pb-2 border-b border-gray-800">
-          {header}
+        <div className="flex-shrink-0 px-4 pb-3 border-b border-gray-800">
+          <div onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()}>
+            {header}
+          </div>
         </div>
       )}
 

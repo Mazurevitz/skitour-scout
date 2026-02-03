@@ -2,12 +2,12 @@
  * Community Intel Component
  *
  * Displays community-submitted condition reports and aggregated data.
- * Especially important for Beskidy where no official avalanche data exists.
+ * Supports both Ascent (Podejście) and Descent (Zjazd) reports.
  */
 
 import { useMemo } from 'react';
 import { formatDistanceToNow } from 'date-fns';
-import { Users, Star, AlertTriangle, MapPin, Clock } from 'lucide-react';
+import { Users, Star, AlertTriangle, MapPin, Clock, ArrowUp, ArrowDown } from 'lucide-react';
 import { useReportsStore, type CommunityReport, type LocationConditions } from '@/stores';
 
 interface CommunityIntelProps {
@@ -15,18 +15,31 @@ interface CommunityIntelProps {
 }
 
 // Condition display config
-const CONDITION_CONFIG: Record<string, { label: string; emoji: string; color: string }> = {
+const SNOW_CONFIG: Record<string, { label: string; emoji: string; color: string }> = {
   puch: { label: 'Powder', emoji: '❄️', color: 'text-blue-400' },
   firn: { label: 'Corn', emoji: '🌞', color: 'text-yellow-400' },
   cukier: { label: 'Sugar', emoji: '✨', color: 'text-cyan-400' },
   szren: { label: 'Crust', emoji: '🧊', color: 'text-slate-400' },
   beton: { label: 'Hard/Icy', emoji: '🪨', color: 'text-gray-400' },
   kamienie: { label: 'Rocks', emoji: '⚠️', color: 'text-red-400' },
-  mokry: { label: 'Wet', emoji: '💧', color: 'text-blue-300' },
 };
 
-function ConditionBadge({ condition }: { condition: string }) {
-  const config = CONDITION_CONFIG[condition] || { label: condition, emoji: '❓', color: 'text-gray-400' };
+const TRACK_CONFIG: Record<string, { label: string; emoji: string; color: string }> = {
+  przetarte: { label: 'Tracked', emoji: '✅', color: 'text-green-400' },
+  zasypane: { label: 'Covered', emoji: '❄️', color: 'text-blue-400' },
+  lod: { label: 'Icy', emoji: '🧊', color: 'text-cyan-400' },
+};
+
+const GEAR_CONFIG: Record<string, { label: string; emoji: string }> = {
+  foki: { label: 'Skins', emoji: '🦭' },
+  harszle: { label: 'Ski crampons', emoji: '⛓️' },
+  raki: { label: 'Crampons', emoji: '🦀' },
+};
+
+function ConditionBadge({ condition, type }: { condition: string; type: 'snow' | 'track' }) {
+  const config = type === 'snow'
+    ? SNOW_CONFIG[condition] || { label: condition, emoji: '❓', color: 'text-gray-400' }
+    : TRACK_CONFIG[condition] || { label: condition, emoji: '❓', color: 'text-gray-400' };
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-full bg-gray-800 text-xs font-medium ${config.color}`}>
       <span>{config.emoji}</span>
@@ -66,19 +79,61 @@ function LocationSummaryCard({ summary }: { summary: LocationConditions }) {
           <MapPin className="w-4 h-4 text-blue-400" />
           <span className="font-medium text-white">{summary.location}</span>
         </div>
-        <ConditionBadge condition={summary.primaryCondition} />
+        {summary.primaryCondition !== 'unknown' && (
+          <ConditionBadge condition={summary.primaryCondition} type="snow" />
+        )}
       </div>
 
       <div className="flex items-center gap-4 text-sm text-gray-400">
-        <div className="flex items-center gap-1">
-          <RatingStars rating={Math.round(summary.averageRating)} />
-          <span className="ml-1">{summary.averageRating.toFixed(1)}</span>
-        </div>
+        {summary.averageRating > 0 && (
+          <div className="flex items-center gap-1">
+            <RatingStars rating={Math.round(summary.averageRating)} />
+            <span className="ml-1">{summary.averageRating.toFixed(1)}</span>
+          </div>
+        )}
         <div className="flex items-center gap-1">
           <Users className="w-3 h-3" />
           <span>{summary.reportCount} reports</span>
         </div>
       </div>
+
+      {/* Report type breakdown */}
+      <div className="mt-2 flex items-center gap-3 text-xs">
+        {summary.ascentCount > 0 && (
+          <span className="flex items-center gap-1 text-green-400">
+            <ArrowUp className="w-3 h-3" />
+            {summary.ascentCount} ascent
+          </span>
+        )}
+        {summary.descentCount > 0 && (
+          <span className="flex items-center gap-1 text-blue-400">
+            <ArrowDown className="w-3 h-3" />
+            {summary.descentCount} descent
+          </span>
+        )}
+      </div>
+
+      {/* Track status and gear */}
+      {summary.trackStatus && (
+        <div className="mt-2 flex items-center gap-2">
+          <span className="text-xs text-gray-500">Track:</span>
+          <ConditionBadge condition={summary.trackStatus} type="track" />
+        </div>
+      )}
+
+      {summary.commonGear.length > 0 && (
+        <div className="mt-2 flex items-center gap-2 flex-wrap">
+          <span className="text-xs text-gray-500">Gear needed:</span>
+          {summary.commonGear.map((gear) => {
+            const config = GEAR_CONFIG[gear];
+            return (
+              <span key={gear} className="text-xs bg-gray-700 px-2 py-0.5 rounded">
+                {config?.emoji} {config?.label || gear}
+              </span>
+            );
+          })}
+        </div>
+      )}
 
       {summary.hazards.length > 0 && (
         <div className="mt-2 flex items-center gap-2">
@@ -106,27 +161,76 @@ function ReportCard({ report }: { report: CommunityReport }) {
     }
   }, [report.timestamp]);
 
+  const isAscent = report.type === 'ascent';
+
   return (
-    <div className={`bg-gray-800/30 rounded-lg p-3 border ${report.isOwn ? 'border-blue-500/30' : 'border-gray-700/30'}`}>
+    <div className={`bg-gray-800/30 rounded-lg p-3 border ${
+      report.isOwn
+        ? isAscent ? 'border-green-500/30' : 'border-blue-500/30'
+        : 'border-gray-700/30'
+    }`}>
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
-          <ConditionBadge condition={report.condition} />
+          {isAscent ? (
+            <span className="flex items-center gap-1 text-xs bg-green-500/20 text-green-400 px-2 py-1 rounded-full">
+              <ArrowUp className="w-3 h-3" />
+              Podejście
+            </span>
+          ) : (
+            <span className="flex items-center gap-1 text-xs bg-blue-500/20 text-blue-400 px-2 py-1 rounded-full">
+              <ArrowDown className="w-3 h-3" />
+              Zjazd
+            </span>
+          )}
           {report.isOwn && (
-            <span className="text-xs text-blue-400 bg-blue-500/10 px-2 py-0.5 rounded">You</span>
+            <span className="text-xs text-gray-500 bg-gray-700 px-2 py-0.5 rounded">You</span>
           )}
         </div>
-        <RatingStars rating={report.rating} />
+        {!isAscent && report.descent && (
+          <RatingStars rating={report.descent.qualityRating} />
+        )}
       </div>
 
-      <div className="flex items-center gap-2 text-sm">
+      <div className="flex items-center gap-2 text-sm mb-2">
         <MapPin className="w-3 h-3 text-gray-500" />
         <span className="text-gray-300">{report.location}</span>
         <span className="text-gray-600">•</span>
         <span className="text-gray-500">{timeAgo}</span>
       </div>
 
+      {/* Ascent details */}
+      {isAscent && report.ascent && (
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500">Track:</span>
+            <ConditionBadge condition={report.ascent.trackStatus} type="track" />
+          </div>
+          {report.ascent.gearNeeded.length > 0 && (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs text-gray-500">Gear:</span>
+              {report.ascent.gearNeeded.map((gear) => {
+                const config = GEAR_CONFIG[gear];
+                return (
+                  <span key={gear} className="text-xs bg-gray-700 px-2 py-0.5 rounded">
+                    {config?.emoji} {config?.label || gear}
+                  </span>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Descent details */}
+      {!isAscent && report.descent && (
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-gray-500">Snow:</span>
+          <ConditionBadge condition={report.descent.snowCondition} type="snow" />
+        </div>
+      )}
+
       {report.notes && (
-        <p className="mt-2 text-sm text-gray-400 line-clamp-2">{report.notes}</p>
+        <p className="mt-2 text-sm text-gray-400 line-clamp-2 italic">"{report.notes}"</p>
       )}
     </div>
   );

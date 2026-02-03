@@ -1,145 +1,342 @@
 /**
  * Map View Component
  *
- * Background map showing mountain regions and routes.
- * Currently a styled placeholder - can integrate Leaflet/Mapbox later.
+ * Interactive map using Leaflet with OpenTopoMap base layer
+ * and Waymarked Trails Winter overlay for ski routes.
  */
 
-import { Mountain, Navigation } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { MapContainer, TileLayer, Marker, Popup, useMap, LayersControl } from 'react-leaflet';
+import L from 'leaflet';
+import { Crosshair, Loader2 } from 'lucide-react';
 import type { EvaluatedRoute } from '@/types';
+import type { CommunityReport } from '@/stores/useReportsStore';
+
+// Import Leaflet CSS
+import 'leaflet/dist/leaflet.css';
+
+// Fix Leaflet default marker icon (use CDN URLs instead of imports)
+delete (L.Icon.Default.prototype as unknown as { _getIconUrl?: unknown })._getIconUrl;
+L.Icon.Default.mergeOptions({
+  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
+});
 
 interface MapViewProps {
   region: string;
   routes?: EvaluatedRoute[];
+  reports?: CommunityReport[];
   onRouteSelect?: (routeId: string) => void;
   selectedRouteId?: string | null;
 }
 
-// Region center coordinates and zoom
-const REGION_CONFIG: Record<string, { lat: number; lng: number; peaks: { name: string; lat: number; lng: number }[] }> = {
-  'Beskid Śląski': {
-    lat: 49.68,
-    lng: 18.95,
-    peaks: [
-      { name: 'Skrzyczne', lat: 49.6847, lng: 19.0311 },
-      { name: 'Barania Góra', lat: 49.5783, lng: 19.0253 },
-      { name: 'Klimczok', lat: 49.7367, lng: 18.9567 },
-    ],
-  },
-  'Beskid Żywiecki': {
-    lat: 49.57,
-    lng: 19.20,
-    peaks: [
-      { name: 'Babia Góra', lat: 49.5731, lng: 19.5294 },
-      { name: 'Pilsko', lat: 49.5456, lng: 19.3344 },
-      { name: 'Romanka', lat: 49.5833, lng: 19.2167 },
-    ],
-  },
-  'Tatry': {
-    lat: 49.23,
-    lng: 20.00,
-    peaks: [
-      { name: 'Kasprowy', lat: 49.2317, lng: 19.9817 },
-      { name: 'Rysy', lat: 49.1794, lng: 20.0881 },
-      { name: 'Świnica', lat: 49.2194, lng: 20.0039 },
-    ],
-  },
+// Region center coordinates
+const REGION_CONFIG: Record<string, { center: [number, number]; zoom: number }> = {
+  'Beskid Śląski': { center: [49.68, 19.0], zoom: 11 },
+  'Beskid Żywiecki': { center: [49.57, 19.35], zoom: 11 },
+  'Tatry': { center: [49.23, 20.0], zoom: 11 },
 };
 
-export function MapView({ region, routes = [], onRouteSelect, selectedRouteId }: MapViewProps) {
-  const config = REGION_CONFIG[region] || REGION_CONFIG['Beskid Śląski'];
+// Custom marker icons
+function createScoreIcon(score: number, isSelected: boolean): L.DivIcon {
+  const color = score >= 70 ? '#22c55e' : score >= 40 ? '#eab308' : '#ef4444';
+  const size = isSelected ? 44 : 36;
+  const border = isSelected ? '3px solid white' : '2px solid rgba(255,255,255,0.5)';
 
-  // Get score color
-  const getScoreColor = (score: number) => {
-    if (score >= 70) return 'bg-green-500';
-    if (score >= 40) return 'bg-yellow-500';
-    return 'bg-red-500';
+  return L.divIcon({
+    className: 'custom-marker',
+    html: `
+      <div style="
+        width: ${size}px;
+        height: ${size}px;
+        background: ${color};
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-weight: bold;
+        font-size: ${isSelected ? '14px' : '12px'};
+        border: ${border};
+        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        transform: translate(-50%, -50%);
+      ">${score}</div>
+    `,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+  });
+}
+
+function createReportIcon(type: 'ascent' | 'descent'): L.DivIcon {
+  const color = type === 'ascent' ? '#22c55e' : '#3b82f6';
+  const arrow = type === 'ascent' ? '↑' : '↓';
+
+  return L.divIcon({
+    className: 'custom-marker',
+    html: `
+      <div style="
+        width: 28px;
+        height: 28px;
+        background: ${color};
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-weight: bold;
+        font-size: 16px;
+        border: 2px solid rgba(255,255,255,0.7);
+        box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+        transform: translate(-50%, -50%);
+      ">${arrow}</div>
+    `,
+    iconSize: [28, 28],
+    iconAnchor: [14, 14],
+  });
+}
+
+// Component to handle map updates when region changes
+function MapController({ region }: { region: string }) {
+  const map = useMap();
+
+  useEffect(() => {
+    const config = REGION_CONFIG[region] || REGION_CONFIG['Beskid Śląski'];
+    map.setView(config.center, config.zoom, { animate: true });
+  }, [region, map]);
+
+  return null;
+}
+
+// Center on user button component
+function CenterOnUserButton() {
+  const map = useMap();
+  const [isLocating, setIsLocating] = useState(false);
+
+  const handleCenterOnUser = () => {
+    if (!navigator.geolocation) {
+      alert('Geolocation not supported');
+      return;
+    }
+
+    setIsLocating(true);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        map.setView(
+          [position.coords.latitude, position.coords.longitude],
+          14,
+          { animate: true }
+        );
+        setIsLocating(false);
+      },
+      (error) => {
+        console.error('Geolocation error:', error);
+        setIsLocating(false);
+        alert('Could not get your location');
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
   };
 
   return (
-    <div className="absolute inset-0 bg-gradient-to-b from-slate-800 via-slate-700 to-slate-900 overflow-hidden">
-      {/* Topographic pattern overlay */}
-      <div
-        className="absolute inset-0 opacity-10"
-        style={{
-          backgroundImage: `url("data:image/svg+xml,%3Csvg width='100' height='100' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 50 Q25 30 50 50 T100 50' fill='none' stroke='%23fff' stroke-width='0.5'/%3E%3Cpath d='M0 70 Q25 50 50 70 T100 70' fill='none' stroke='%23fff' stroke-width='0.5'/%3E%3Cpath d='M0 30 Q25 10 50 30 T100 30' fill='none' stroke='%23fff' stroke-width='0.5'/%3E%3C/svg%3E")`,
-          backgroundSize: '100px 100px',
-        }}
-      />
+    <button
+      onClick={handleCenterOnUser}
+      disabled={isLocating}
+      className="absolute top-4 right-4 z-[1000] w-10 h-10 bg-gray-900/90 hover:bg-gray-800 rounded-lg flex items-center justify-center shadow-lg transition-colors disabled:opacity-50"
+      title="Center on my location"
+    >
+      {isLocating ? (
+        <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />
+      ) : (
+        <Crosshair className="w-5 h-5 text-white" />
+      )}
+    </button>
+  );
+}
 
-      {/* Mountain silhouette */}
-      <svg
-        className="absolute bottom-0 left-0 right-0 h-1/2 opacity-20"
-        viewBox="0 0 100 50"
-        preserveAspectRatio="none"
+export function MapView({
+  region,
+  routes = [],
+  reports = [],
+  onRouteSelect,
+  selectedRouteId,
+}: MapViewProps) {
+  const config = REGION_CONFIG[region] || REGION_CONFIG['Beskid Śląski'];
+
+  // Filter reports with coordinates
+  const reportsWithCoords = reports.filter((r) => r.coordinates);
+
+  return (
+    <div className="absolute inset-0 z-0">
+      <MapContainer
+        center={config.center}
+        zoom={config.zoom}
+        className="h-full w-full"
+        zoomControl={false}
+        attributionControl={false}
       >
-        <polygon
-          points="0,50 10,35 25,45 35,25 50,40 60,20 75,35 85,28 100,50"
-          fill="currentColor"
-          className="text-white"
-        />
-      </svg>
+        {/* Map controller for region changes */}
+        <MapController region={region} />
 
-      {/* Peak markers */}
-      {config.peaks.map((peak, index) => (
-        <div
-          key={peak.name}
-          className="absolute transform -translate-x-1/2 -translate-y-1/2"
-          style={{
-            left: `${20 + index * 30}%`,
-            top: `${25 + (index % 2) * 15}%`,
-          }}
-        >
-          <div className="flex flex-col items-center">
-            <Mountain className="w-6 h-6 text-white/60" />
-            <span className="text-xs text-white/50 mt-1 whitespace-nowrap">{peak.name}</span>
-          </div>
-        </div>
-      ))}
+        {/* Center on user button */}
+        <CenterOnUserButton />
 
-      {/* Route markers */}
-      {routes.slice(0, 5).map((route, index) => (
-        <button
-          key={route.id}
-          onClick={() => onRouteSelect?.(route.id)}
-          className={`absolute transform -translate-x-1/2 -translate-y-1/2 transition-all ${
-            selectedRouteId === route.id ? 'scale-125 z-10' : 'hover:scale-110'
-          }`}
-          style={{
-            left: `${15 + index * 18}%`,
-            top: `${40 + (index % 3) * 10}%`,
-          }}
-        >
-          <div className="relative">
-            <div className={`w-10 h-10 rounded-full ${getScoreColor(route.conditionScore)} flex items-center justify-center shadow-lg border-2 border-white/30`}>
-              <span className="text-white text-sm font-bold">{route.conditionScore}</span>
-            </div>
-            {selectedRouteId === route.id && (
-              <div className="absolute -bottom-8 left-1/2 transform -translate-x-1/2 bg-gray-900/90 px-2 py-1 rounded text-xs text-white whitespace-nowrap">
-                {route.name}
+        {/* Layer control */}
+        <LayersControl position="topleft">
+          {/* Base layers */}
+          <LayersControl.BaseLayer checked name="OpenTopoMap">
+            <TileLayer
+              url="https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png"
+              maxZoom={17}
+              attribution='&copy; <a href="https://opentopomap.org">OpenTopoMap</a>'
+            />
+          </LayersControl.BaseLayer>
+
+          <LayersControl.BaseLayer name="OpenStreetMap">
+            <TileLayer
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              maxZoom={19}
+              attribution='&copy; <a href="https://openstreetmap.org">OpenStreetMap</a>'
+            />
+          </LayersControl.BaseLayer>
+
+          {/* Overlay layers */}
+          <LayersControl.Overlay checked name="Ski Routes">
+            <TileLayer
+              url="https://tile.waymarkedtrails.org/slopes/{z}/{x}/{y}.png"
+              maxZoom={18}
+              opacity={0.7}
+              attribution='&copy; <a href="https://waymarkedtrails.org">Waymarked Trails</a>'
+            />
+          </LayersControl.Overlay>
+        </LayersControl>
+
+        {/* Route markers - use summit coordinates */}
+        {routes.map((route) => (
+          <Marker
+            key={route.id}
+            position={[route.summit.lat, route.summit.lng]}
+            icon={createScoreIcon(route.conditionScore, selectedRouteId === route.id)}
+            eventHandlers={{
+              click: () => onRouteSelect?.(route.id),
+            }}
+          >
+            <Popup className="route-popup">
+              <div className="p-1">
+                <h3 className="font-bold text-sm">{route.name}</h3>
+                <p className="text-xs text-gray-600">
+                  {route.summit.altitude}m • {route.elevation}m gain
+                </p>
+                <div className="mt-1 flex items-center gap-2">
+                  <span
+                    className={`px-2 py-0.5 rounded text-xs font-medium text-white ${
+                      route.conditionScore >= 70
+                        ? 'bg-green-500'
+                        : route.conditionScore >= 40
+                        ? 'bg-yellow-500'
+                        : 'bg-red-500'
+                    }`}
+                  >
+                    Score: {route.conditionScore}
+                  </span>
+                  <span className="text-xs text-gray-500">{route.difficulty}</span>
+                </div>
+                {route.recommendation && (
+                  <p className="mt-1 text-xs text-gray-700">{route.recommendation}</p>
+                )}
               </div>
-            )}
-          </div>
-        </button>
-      ))}
+            </Popup>
+          </Marker>
+        ))}
 
-      {/* Region label */}
-      <div className="absolute top-4 left-4 right-4">
-        <div className="flex items-center gap-2 text-white/70">
-          <Navigation className="w-4 h-4" />
-          <span className="text-sm font-medium">{region}</span>
+        {/* Community report markers */}
+        {reportsWithCoords.map((report) => (
+          <Marker
+            key={report.id}
+            position={[report.coordinates!.lat, report.coordinates!.lng]}
+            icon={createReportIcon(report.type || 'descent')}
+          >
+            <Popup>
+              <div className="p-1">
+                <div className="flex items-center gap-1 mb-1">
+                  <span
+                    className={`px-2 py-0.5 rounded text-xs font-medium text-white ${
+                      report.type === 'ascent' ? 'bg-green-500' : 'bg-blue-500'
+                    }`}
+                  >
+                    {report.type === 'ascent' ? '↑ Podejście' : '↓ Zjazd'}
+                  </span>
+                </div>
+                <h3 className="font-bold text-sm">{report.location}</h3>
+                {report.type === 'ascent' && report.ascent && (
+                  <p className="text-xs text-gray-600">
+                    Track: {report.ascent.trackStatus}
+                    {report.ascent.gearNeeded.length > 0 && (
+                      <> • Gear: {report.ascent.gearNeeded.join(', ')}</>
+                    )}
+                  </p>
+                )}
+                {report.type === 'descent' && report.descent && (
+                  <p className="text-xs text-gray-600">
+                    Snow: {report.descent.snowCondition} • Rating: {'★'.repeat(report.descent.qualityRating)}
+                  </p>
+                )}
+                {report.notes && (
+                  <p className="mt-1 text-xs text-gray-700 italic">"{report.notes}"</p>
+                )}
+                <p className="mt-1 text-xs text-gray-400">
+                  {new Date(report.timestamp).toLocaleDateString()}
+                </p>
+              </div>
+            </Popup>
+          </Marker>
+        ))}
+
+        {/* Attribution */}
+        <div className="absolute bottom-2 left-2 z-[1000] text-[10px] text-gray-600 bg-white/80 px-1 rounded">
+          © OpenTopoMap, Waymarked Trails
         </div>
-      </div>
+      </MapContainer>
 
-      {/* Compass */}
-      <div className="absolute top-4 right-4 w-10 h-10 rounded-full bg-gray-900/50 flex items-center justify-center">
-        <span className="text-white/70 text-xs font-bold">N</span>
-      </div>
-
-      {/* Coordinates display */}
-      <div className="absolute bottom-4 left-4 text-white/40 text-xs font-mono">
-        {config.lat.toFixed(2)}°N {config.lng.toFixed(2)}°E
-      </div>
+      {/* Custom styles for Leaflet */}
+      <style>{`
+        .leaflet-container {
+          background: #1f2937;
+          font-family: inherit;
+        }
+        .leaflet-control-layers {
+          background: rgba(17, 24, 39, 0.95) !important;
+          border: 1px solid #374151 !important;
+          border-radius: 8px !important;
+          color: white !important;
+        }
+        .leaflet-control-layers-toggle {
+          background-color: rgba(17, 24, 39, 0.95) !important;
+          border: 1px solid #374151 !important;
+          width: 36px !important;
+          height: 36px !important;
+        }
+        .leaflet-control-layers-list {
+          padding: 8px !important;
+        }
+        .leaflet-control-layers label {
+          color: #d1d5db !important;
+          font-size: 12px !important;
+        }
+        .leaflet-control-layers-selector {
+          margin-right: 6px !important;
+        }
+        .leaflet-popup-content-wrapper {
+          border-radius: 8px;
+        }
+        .leaflet-popup-content {
+          margin: 8px 12px;
+        }
+        .custom-marker {
+          background: transparent !important;
+          border: none !important;
+        }
+      `}</style>
     </div>
   );
 }

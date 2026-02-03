@@ -2,7 +2,7 @@
  * Community Reports Store
  *
  * Manages community-submitted condition reports using IndexedDB for persistence.
- * Used especially for Beskidy region where no official avalanche data exists.
+ * Supports dual reporting: Ascent (Podejście) and Descent (Zjazd).
  *
  * @module stores/useReportsStore
  */
@@ -10,18 +10,56 @@
 import { create } from 'zustand';
 
 /**
+ * Report type: Ascent or Descent
+ */
+export type ReportType = 'ascent' | 'descent';
+
+/**
+ * Track status for ascent reports
+ */
+export type TrackStatus = 'przetarte' | 'zasypane' | 'lod';
+
+/**
+ * Gear needed for ascent
+ */
+export type AscentGear = 'foki' | 'harszle' | 'raki';
+
+/**
+ * Snow condition types for descent
+ */
+export type SnowCondition = 'puch' | 'firn' | 'szren' | 'beton' | 'cukier' | 'kamienie';
+
+/**
+ * Ascent-specific data
+ */
+export interface AscentData {
+  trackStatus: TrackStatus;
+  gearNeeded: AscentGear[];
+}
+
+/**
+ * Descent-specific data
+ */
+export interface DescentData {
+  snowCondition: SnowCondition;
+  qualityRating: number; // 1-5
+}
+
+/**
  * Community report submitted by users
  */
 export interface CommunityReport {
   id: string;
-  /** Snow condition type */
-  condition: 'puch' | 'firn' | 'szren' | 'beton' | 'cukier' | 'kamienie' | string;
-  /** Rating 1-5 */
-  rating: number;
+  /** Report type: ascent or descent */
+  type: ReportType;
   /** Location name */
   location: string;
   /** Region */
   region: string;
+  /** Ascent-specific data (if type === 'ascent') */
+  ascent?: AscentData;
+  /** Descent-specific data (if type === 'descent') */
+  descent?: DescentData;
   /** Optional notes */
   notes?: string;
   /** GPS coordinates if available */
@@ -30,6 +68,12 @@ export interface CommunityReport {
   timestamp: string;
   /** Is this user's own report */
   isOwn: boolean;
+
+  // Legacy fields for backwards compatibility
+  /** @deprecated Use descent.snowCondition instead */
+  condition?: string;
+  /** @deprecated Use descent.qualityRating instead */
+  rating?: number;
 }
 
 /**
@@ -38,17 +82,39 @@ export interface CommunityReport {
 export interface LocationConditions {
   location: string;
   region: string;
-  /** Most common condition */
+  /** Most common snow condition (from descent reports) */
   primaryCondition: string;
-  /** Average rating */
+  /** Average quality rating */
   averageRating: number;
   /** Number of reports */
   reportCount: number;
+  /** Number of ascent reports */
+  ascentCount: number;
+  /** Number of descent reports */
+  descentCount: number;
   /** Most recent report timestamp */
   lastReport: string;
+  /** Most common track status (from ascent reports) */
+  trackStatus?: TrackStatus;
+  /** Commonly needed gear */
+  commonGear: AscentGear[];
   /** Reported hazards */
   hazards: string[];
 }
+
+/**
+ * Input for adding a new report
+ */
+export type NewReportInput = {
+  type: ReportType;
+  location: string;
+  region: string;
+  notes?: string;
+  coordinates?: { lat: number; lng: number };
+} & (
+  | { type: 'ascent'; ascent: AscentData }
+  | { type: 'descent'; descent: DescentData }
+);
 
 interface ReportsState {
   reports: CommunityReport[];
@@ -57,16 +123,17 @@ interface ReportsState {
 
   // Actions
   initialize: () => Promise<void>;
-  addReport: (report: Omit<CommunityReport, 'id' | 'timestamp' | 'isOwn'>) => Promise<void>;
+  addReport: (report: NewReportInput) => Promise<void>;
   getReportsForRegion: (region: string) => CommunityReport[];
   getReportsForLocation: (location: string) => CommunityReport[];
+  getReportsWithCoordinates: () => CommunityReport[];
   getAggregatedConditions: (region: string) => LocationConditions[];
   getRecentReports: (hours?: number) => CommunityReport[];
   clearOldReports: (daysOld?: number) => Promise<void>;
 }
 
 const DB_NAME = 'skitour-scout-reports';
-const DB_VERSION = 1;
+const DB_VERSION = 2; // Incremented for schema change
 const STORE_NAME = 'reports';
 
 /**
@@ -87,6 +154,7 @@ function openDB(): Promise<IDBDatabase> {
         store.createIndex('region', 'region', { unique: false });
         store.createIndex('location', 'location', { unique: false });
         store.createIndex('timestamp', 'timestamp', { unique: false });
+        store.createIndex('type', 'type', { unique: false });
       }
     };
   });
@@ -97,6 +165,24 @@ function openDB(): Promise<IDBDatabase> {
  */
 function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+/**
+ * Migrate legacy report to new format
+ */
+function migrateReport(report: CommunityReport): CommunityReport {
+  // If report already has new format, return as-is
+  if (report.type) return report;
+
+  // Migrate legacy report to descent type
+  return {
+    ...report,
+    type: 'descent',
+    descent: {
+      snowCondition: (report.condition as SnowCondition) || 'puch',
+      qualityRating: report.rating || 3,
+    },
+  };
 }
 
 export const useReportsStore = create<ReportsState>((set, get) => ({
@@ -112,14 +198,16 @@ export const useReportsStore = create<ReportsState>((set, get) => ({
       const tx = db.transaction(STORE_NAME, 'readonly');
       const store = tx.objectStore(STORE_NAME);
 
-      const reports: CommunityReport[] = await new Promise((resolve, reject) => {
+      const rawReports: CommunityReport[] = await new Promise((resolve, reject) => {
         const request = store.getAll();
         request.onsuccess = () => resolve(request.result);
         request.onerror = () => reject(request.error);
       });
 
-      // Sort by timestamp descending
-      reports.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      // Migrate and sort reports
+      const reports = rawReports
+        .map(migrateReport)
+        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
       set({
         reports,
@@ -134,9 +222,9 @@ export const useReportsStore = create<ReportsState>((set, get) => ({
     }
   },
 
-  addReport: async (reportData) => {
+  addReport: async (reportInput) => {
     const report: CommunityReport = {
-      ...reportData,
+      ...reportInput,
       id: generateId(),
       timestamp: new Date().toISOString(),
       isOwn: true,
@@ -155,7 +243,6 @@ export const useReportsStore = create<ReportsState>((set, get) => ({
 
       db.close();
 
-      // Update state
       set((state) => ({
         reports: [report, ...state.reports],
       }));
@@ -180,6 +267,11 @@ export const useReportsStore = create<ReportsState>((set, get) => ({
     );
   },
 
+  getReportsWithCoordinates: () => {
+    const { reports } = get();
+    return reports.filter((r) => r.coordinates);
+  },
+
   getAggregatedConditions: (region: string) => {
     const regionReports = get().getReportsForRegion(region);
 
@@ -194,16 +286,46 @@ export const useReportsStore = create<ReportsState>((set, get) => ({
     const aggregated: LocationConditions[] = [];
 
     for (const [location, reports] of byLocation) {
-      // Get most common condition
+      const ascentReports = reports.filter((r) => r.type === 'ascent');
+      const descentReports = reports.filter((r) => r.type === 'descent');
+
+      // Get most common snow condition from descent reports
       const conditionCounts = new Map<string, number>();
-      for (const r of reports) {
-        conditionCounts.set(r.condition, (conditionCounts.get(r.condition) || 0) + 1);
+      for (const r of descentReports) {
+        const cond = r.descent?.snowCondition || r.condition || 'unknown';
+        conditionCounts.set(cond, (conditionCounts.get(cond) || 0) + 1);
       }
       const primaryCondition = [...conditionCounts.entries()]
         .sort((a, b) => b[1] - a[1])[0]?.[0] || 'unknown';
 
-      // Average rating
-      const avgRating = reports.reduce((sum, r) => sum + r.rating, 0) / reports.length;
+      // Average rating from descent reports
+      const ratings = descentReports
+        .map((r) => r.descent?.qualityRating || r.rating || 0)
+        .filter((r) => r > 0);
+      const avgRating = ratings.length > 0
+        ? ratings.reduce((sum, r) => sum + r, 0) / ratings.length
+        : 0;
+
+      // Most common track status from ascent reports
+      const trackCounts = new Map<TrackStatus, number>();
+      for (const r of ascentReports) {
+        if (r.ascent?.trackStatus) {
+          trackCounts.set(r.ascent.trackStatus, (trackCounts.get(r.ascent.trackStatus) || 0) + 1);
+        }
+      }
+      const trackStatus = [...trackCounts.entries()]
+        .sort((a, b) => b[1] - a[1])[0]?.[0];
+
+      // Commonly needed gear
+      const gearCounts = new Map<AscentGear, number>();
+      for (const r of ascentReports) {
+        for (const gear of r.ascent?.gearNeeded || []) {
+          gearCounts.set(gear, (gearCounts.get(gear) || 0) + 1);
+        }
+      }
+      const commonGear = [...gearCounts.entries()]
+        .filter(([, count]) => count >= ascentReports.length * 0.3) // At least 30% mention it
+        .map(([gear]) => gear);
 
       // Collect hazards from notes
       const hazards: string[] = [];
@@ -224,12 +346,15 @@ export const useReportsStore = create<ReportsState>((set, get) => ({
         primaryCondition,
         averageRating: Math.round(avgRating * 10) / 10,
         reportCount: reports.length,
+        ascentCount: ascentReports.length,
+        descentCount: descentReports.length,
         lastReport: reports[0].timestamp,
+        trackStatus,
+        commonGear,
         hazards,
       });
     }
 
-    // Sort by report count
     return aggregated.sort((a, b) => b.reportCount - a.reportCount);
   },
 
@@ -267,7 +392,6 @@ export const useReportsStore = create<ReportsState>((set, get) => ({
         request.onerror = () => reject(request.error);
       });
 
-      // Delete old reports
       for (const id of keysToDelete) {
         store.delete(id);
       }
@@ -278,7 +402,6 @@ export const useReportsStore = create<ReportsState>((set, get) => ({
 
       db.close();
 
-      // Update state
       set((state) => ({
         reports: state.reports.filter((r) => new Date(r.timestamp).getTime() >= cutoff),
       }));

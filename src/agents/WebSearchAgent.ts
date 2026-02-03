@@ -369,12 +369,13 @@ export class WebSearchAgent extends BaseAgent<WebSearchInput, WithConfidence<Con
         try {
           const llm = new LLMService(context.llmConfig);
           const enhanced = await llm.prompt(
-            `Summarize these ski touring conditions in 1-2 sentences in English. Extract key info about snow, weather, and safety:\n\n${result.title}\n${result.snippet}`,
-            'You are a ski touring conditions analyst. Be concise and factual.',
+            `Extract ski conditions from this text. Write 1 SHORT sentence (max 20 words). NO introduction. Start directly with conditions.\n\nText: "${result.title} - ${result.snippet}"`,
+            'Output format: Direct condition statement. Example: "Fresh powder above 1200m, icy trails below." Never start with "Here is" or "Summary:" or similar phrases.',
             { signal: context.signal }
           );
           if (enhanced && enhanced.length > 10) {
-            summary = enhanced;
+            // Clean up any preambles the LLM might still add
+            summary = this.cleanLLMResponse(enhanced);
             confidence = aiConfidence(
               context.llmConfig.provider === 'ollama'
                 ? context.llmConfig.ollamaModel || 'ollama'
@@ -533,5 +534,52 @@ export class WebSearchAgent extends BaseAgent<WebSearchInput, WithConfidence<Con
     }
 
     return 'Unknown';
+  }
+
+  /**
+   * Clean LLM response to remove preambles and normalize
+   */
+  private cleanLLMResponse(text: string): string {
+    let cleaned = text.trim();
+
+    // Remove common preamble patterns
+    const preamblePatterns = [
+      /^(here is|here's|based on|according to|the text|i |let me|summary:?\s*)/i,
+      /^(ski touring conditions?|current conditions?|conditions in)[^:]*:\s*/i,
+      /^(unfortunately|however|note:?)\s*,?\s*/i,
+      /^["']?summary["']?:?\s*/i,
+      /^in (1-2|one|two) sentences?:?\s*/i,
+    ];
+
+    for (const pattern of preamblePatterns) {
+      cleaned = cleaned.replace(pattern, '');
+    }
+
+    // Remove trailing incomplete sentences (often from truncation)
+    const lastPeriod = cleaned.lastIndexOf('.');
+    if (lastPeriod > 20 && lastPeriod < cleaned.length - 1) {
+      // There's content after the last period, likely incomplete
+      const afterPeriod = cleaned.slice(lastPeriod + 1).trim();
+      if (afterPeriod.length > 5 && !afterPeriod.endsWith('.') && !afterPeriod.endsWith('!') && !afterPeriod.endsWith('?')) {
+        cleaned = cleaned.slice(0, lastPeriod + 1);
+      }
+    }
+
+    // Capitalize first letter
+    if (cleaned.length > 0) {
+      cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+    }
+
+    // Limit length
+    if (cleaned.length > 200) {
+      const truncateAt = cleaned.lastIndexOf('.', 200);
+      if (truncateAt > 50) {
+        cleaned = cleaned.slice(0, truncateAt + 1);
+      } else {
+        cleaned = cleaned.slice(0, 197) + '...';
+      }
+    }
+
+    return cleaned;
   }
 }

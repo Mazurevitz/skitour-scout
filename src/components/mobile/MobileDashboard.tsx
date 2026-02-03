@@ -15,19 +15,20 @@ import {
   AlertTriangle,
   Users,
 } from 'lucide-react';
-import { useAppStore, useReportsStore } from '@/stores';
+import { useAppStore, useReportsStore, type NewReportInput } from '@/stores';
 import { WeatherAgent } from '@/agents';
 import { BottomSheet } from './BottomSheet';
 import { MapView } from './MapView';
-import { QuickReport, type ConditionReport } from './QuickReport';
+import { QuickReport } from './QuickReport';
 import { CommunityIntel } from './CommunityIntel';
+import { IntelSummary } from './IntelSummary';
 import { AvalancheIndicator } from '../AvalancheIndicator';
 import { WeatherCard } from '../WeatherCard';
 import { RouteCard } from '../RouteCard';
 import { IntelFeed } from '../IntelFeed';
 import { Settings } from '../Settings';
 
-type ViewType = 'overview' | 'routes' | 'intel';
+type ViewType = 'overview' | 'routes' | 'reports';
 
 export function MobileDashboard() {
   const [activeView, setActiveView] = useState<ViewType>('overview');
@@ -74,21 +75,15 @@ export function MobileDashboard() {
   const sortedRoutes = [...routes].sort((a, b) => b.conditionScore - a.conditionScore);
   const isTatry = config.region.toLowerCase().includes('tatry');
 
-  // Get recent community reports count for badge
-  const recentReportsCount = getRecentReports(24).filter(
+  // Get recent community reports for current region
+  const recentReports = getRecentReports(48).filter(
     (r) => r.region.toLowerCase().includes(config.region.toLowerCase()) ||
       config.region.toLowerCase().includes(r.region.toLowerCase())
-  ).length;
+  );
+  const recentReportsCount = recentReports.length;
 
-  const handleReportSubmit = async (report: ConditionReport) => {
-    await addReport({
-      condition: report.condition,
-      rating: report.rating,
-      location: report.location,
-      region: config.region,
-      notes: report.notes,
-      coordinates: report.coordinates,
-    });
+  const handleReportSubmit = async (report: NewReportInput) => {
+    await addReport(report);
   };
 
   const handleRouteSelect = (routeId: string) => {
@@ -143,7 +138,7 @@ export function MobileDashboard() {
         {[
           { id: 'overview', label: 'Overview', icon: Mountain, badge: 0 },
           { id: 'routes', label: 'Routes', icon: Route, badge: 0 },
-          { id: 'intel', label: 'Intel', icon: Radio, badge: recentReportsCount },
+          { id: 'reports', label: 'Reports', icon: Radio, badge: recentReportsCount },
         ].map((tab) => (
           <button
             key={tab.id}
@@ -173,6 +168,7 @@ export function MobileDashboard() {
       <MapView
         region={config.region}
         routes={sortedRoutes}
+        reports={recentReports}
         onRouteSelect={handleRouteSelect}
         selectedRouteId={selectedRouteId}
       />
@@ -217,7 +213,7 @@ export function MobileDashboard() {
                         Beskidy has no TOPR coverage. Safety data comes from community reports.
                       </p>
                       <button
-                        onClick={() => setActiveView('intel')}
+                        onClick={() => setActiveView('reports')}
                         className="mt-2 text-xs text-blue-400 hover:underline flex items-center gap-1"
                       >
                         <Users className="w-3 h-3" />
@@ -303,9 +299,12 @@ export function MobileDashboard() {
             </div>
           )}
 
-          {/* Intel View */}
-          {activeView === 'intel' && (
+          {/* Reports View */}
+          {activeView === 'reports' && (
             <div className="space-y-6">
+              {/* AI Aggregated Summary */}
+              <IntelSummary region={config.region} />
+
               {/* Community Reports Section */}
               <CommunityIntel region={config.region} />
 
@@ -313,7 +312,7 @@ export function MobileDashboard() {
               <div className="border-t border-gray-800 pt-4">
                 <h3 className="text-base font-semibold text-white flex items-center gap-2 mb-4">
                   <Radio className="w-4 h-4 text-green-400" />
-                  Web Search Intel
+                  Web Sources
                 </h3>
                 <IntelFeed
                   webReports={webReports}
