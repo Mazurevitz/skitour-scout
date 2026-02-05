@@ -122,34 +122,34 @@ export function ConfidenceDot({ level }: { level: ConfidenceLevel }) {
 export function FreshnessIndicator({ confidence }: { confidence: DataConfidence }) {
   const { ageHours, fetchedAt } = confidence;
 
-  let freshnessText = 'Just now';
+  let freshnessText = 'Przed chwilą';
   let freshnessColor = 'text-green-400';
 
   if (ageHours !== undefined) {
     if (ageHours < 1) {
-      freshnessText = 'Just now';
+      freshnessText = 'Przed chwilą';
       freshnessColor = 'text-green-400';
     } else if (ageHours < 6) {
-      freshnessText = `${Math.round(ageHours)}h ago`;
+      freshnessText = `${Math.round(ageHours)}h temu`;
       freshnessColor = 'text-green-400';
     } else if (ageHours < 24) {
-      freshnessText = `${Math.round(ageHours)}h ago`;
+      freshnessText = `${Math.round(ageHours)}h temu`;
       freshnessColor = 'text-yellow-400';
     } else if (ageHours < 72) {
-      freshnessText = `${Math.round(ageHours / 24)}d ago`;
+      freshnessText = `${Math.round(ageHours / 24)}d temu`;
       freshnessColor = 'text-orange-400';
     } else {
-      freshnessText = 'Old data';
+      freshnessText = 'Stare dane';
       freshnessColor = 'text-red-400';
     }
   } else if (fetchedAt) {
     const hours = (Date.now() - new Date(fetchedAt).getTime()) / (1000 * 60 * 60);
     if (hours < 1) {
-      freshnessText = 'Just now';
+      freshnessText = 'Przed chwilą';
     } else if (hours < 24) {
-      freshnessText = `${Math.round(hours)}h ago`;
+      freshnessText = `${Math.round(hours)}h temu`;
     } else {
-      freshnessText = `${Math.round(hours / 24)}d ago`;
+      freshnessText = `${Math.round(hours / 24)}d temu`;
     }
   }
 
@@ -166,15 +166,15 @@ export function FreshnessIndicator({ confidence }: { confidence: DataConfidence 
  */
 export function ConfidenceLegend() {
   const levels: { level: ConfidenceLevel; desc: string }[] = [
-    { level: 'high', desc: 'Real-time API data' },
-    { level: 'medium', desc: 'Recent web/search data' },
-    { level: 'low', desc: 'AI-generated or old data' },
-    { level: 'unknown', desc: 'Mock/placeholder data' },
+    { level: 'high', desc: 'Dane z API (na żywo)' },
+    { level: 'medium', desc: 'Aktualne dane z wyszukiwania' },
+    { level: 'low', desc: 'Wygenerowane przez AI lub stare' },
+    { level: 'unknown', desc: 'Dane testowe' },
   ];
 
   return (
     <div className="space-y-1 p-2 bg-gray-800/50 rounded-lg">
-      <div className="text-xs font-medium text-gray-400 mb-2">Data Confidence</div>
+      <div className="text-xs font-medium text-gray-400 mb-2">Jakość danych</div>
       {levels.map(({ level, desc }) => (
         <div key={level} className="flex items-center gap-2">
           <ConfidenceDot level={level} />

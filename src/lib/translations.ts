@@ -1,0 +1,281 @@
+// Polish translations for SkitourScout
+// Default and only language for now
+
+export const t = {
+  // Common
+  loading: 'Ładowanie...',
+  error: 'Błąd',
+  save: 'Zapisz',
+  cancel: 'Anuluj',
+  close: 'Zamknij',
+  search: 'Szukaj',
+  searching: 'Szukam...',
+  submit: 'Wyślij',
+  login: 'Zaloguj się',
+  logout: 'Wyloguj',
+  you: 'Ty',
+
+  // Navigation
+  nav: {
+    overview: 'Przegląd',
+    routes: 'Trasy',
+    reports: 'Raporty',
+  },
+
+  // Regions
+  regions: {
+    tatry: 'Tatry',
+    beskidSlaski: 'Beskid Śląski',
+    beskidZywiecki: 'Beskid Żywiecki',
+    beskidy: 'Beskidy',
+  },
+
+  // Avalanche
+  avalanche: {
+    title: 'Zagrożenie lawinowe',
+    level1: 'Niskie',
+    level2: 'Umiarkowane',
+    level3: 'Znaczne',
+    level4: 'Wysokie',
+    level5: 'Bardzo wysokie',
+    noService: 'Brak komunikatu lawinowego',
+    noServiceShort: 'Brak TOPR',
+    beskidyNote: 'Beskidy nie mają oficjalnego serwisu lawinowego. Oceń warunki lokalnie.',
+    couldNotLoad: 'Nie udało się załadować danych lawinowych',
+    checkTopr: 'Sprawdź aktualne warunki na:',
+    toprLink: 'TOPR Lawiny',
+    problemAspects: 'Ekspozycje',
+    dangerAltitude: 'Wysokość zagrożenia',
+    activeProblems: 'Aktywne problemy',
+    recommendations: 'Zalecenia',
+    validUntil: 'Ważne do',
+    issued: 'Wydano',
+    source: 'Źródło',
+  },
+
+  // Weather
+  weather: {
+    feelsLike: 'Odczuwalna',
+    freshSnow: 'Świeży śnieg 24h',
+    freezingLevel: 'Poziom 0°C',
+    updated: 'Zaktualizowano',
+    noData: 'Brak danych pogodowych',
+    conditions: {
+      clear: 'Bezchmurnie',
+      partlyCloudy: 'Częściowe zachmurzenie',
+      cloudy: 'Pochmurno',
+      snow: 'Śnieg',
+      heavySnow: 'Intensywny śnieg',
+      rain: 'Deszcz',
+      fog: 'Mgła',
+      windy: 'Wietrznie',
+    },
+  },
+
+  // Routes
+  routes: {
+    topRoutes: 'Najlepsze trasy',
+    viewAll: 'Zobacz wszystkie',
+    score: 'Ocena',
+    elevation: 'Przewyższenie',
+    distance: 'Dystans',
+    duration: 'Czas',
+    scoreBreakdown: 'Składowe oceny',
+    snow: 'Śnieg',
+    riskFactors: 'Czynniki ryzyka',
+    difficulty: {
+      easy: 'Łatwa',
+      moderate: 'Umiarkowana',
+      difficult: 'Trudna',
+      expert: 'Ekspercka',
+    },
+  },
+
+  // Reports / Quick Report
+  reports: {
+    title: 'Szybki raport',
+    swipeToClose: 'Przeciągnij w dół, aby zamknąć',
+    ascent: 'Podejście',
+    descent: 'Zjazd',
+    trackStatus: 'Stan trasy',
+    gearNeeded: 'Potrzebny sprzęt',
+    snowCondition: 'Warunki śniegowe',
+    qualityRating: 'Ocena jakości',
+    location: 'Lokalizacja',
+    notes: 'Uwagi',
+    notesPlaceholder: 'Dodatkowe obserwacje (opcjonalnie)',
+    useGps: 'Użyj GPS',
+    gpsAdded: 'GPS dodany',
+    submitAscent: 'Wyślij raport z podejścia',
+    submitDescent: 'Wyślij raport ze zjazdu',
+    loginRequired: 'Logowanie wymagane',
+    loginToReport: 'Zaloguj się, aby dodawać raporty i pomagać społeczności.',
+    rateLimit: 'Limit raportów',
+    rateLimitMessage: 'Możesz wysłać kolejny raport za {minutes} min.',
+
+    // Track status options
+    track: {
+      tracked: 'Przetarte',
+      covered: 'Zasypane',
+      icy: 'Lód',
+    },
+
+    // Gear options
+    gear: {
+      skins: 'Foki',
+      skiCrampons: 'Harszle',
+      crampons: 'Raki',
+    },
+
+    // Snow conditions
+    snow: {
+      powder: 'Puch',
+      corn: 'Firn',
+      sugar: 'Cukier',
+      crust: 'Szreń',
+      hardIcy: 'Beton',
+      rocks: 'Kamienie',
+    },
+  },
+
+  // Community Intel
+  community: {
+    title: 'Raporty społeczności',
+    reportsCount: '{count} raportów (48h)',
+    noReports: 'Brak raportów',
+    noReportsYet: 'Brak raportów z tego regionu',
+    beFirst: 'Bądź pierwszy! Dodaj raport o warunkach.',
+    tapToAdd: 'Kliknij + aby dodać raport',
+    byLocation: 'Wg lokalizacji',
+    recentReports: 'Ostatnie raporty',
+    allLocations: 'Wszystkie lokalizacje',
+  },
+
+  // Intel / AI Summary
+  intel: {
+    title: 'Podsumowanie AI',
+    subtitle: '{reports} raportów + {sources} źródeł',
+    analyzing: 'Analizuję dane...',
+    generate: 'Generuj podsumowanie AI',
+    tryAgain: 'Spróbuj ponownie',
+    noData: 'Brak danych do podsumowania',
+    notAvailable: 'Serwis AI niedostępny. Skonfiguruj Supabase.',
+    timeout: 'Przekroczono czas. Spróbuj ponownie.',
+    conditionReports: 'Raporty warunków',
+    searchWeb: 'Szukaj w sieci',
+    noReportsYet: 'Brak raportów',
+    clickSearch: 'Kliknij "Szukaj w sieci" aby znaleźć aktualne warunki',
+  },
+
+  // Settings
+  settings: {
+    title: 'Ustawienia',
+    productionMode: 'Tryb produkcyjny',
+    connectedToBackend: 'Aplikacja jest połączona z backendem.',
+    loggedIn: 'Jesteś zalogowany.',
+    loginToReport: 'Zaloguj się, aby dodawać raporty.',
+    offlineMode: 'Tryb offline',
+    offlineDescription: 'Backend nie jest skonfigurowany. Dane są przechowywane lokalnie.',
+    admin: 'Administrator',
+    adminDescription: 'Ustawienia LLM i moderacja raportów dostępne w panelu admina.',
+    region: 'Region',
+    regionHelp: 'Trasy i lokalizacje pogodowe zależą od regionu',
+    autoRefresh: 'Automatyczne odświeżanie',
+    refresh15: 'Co 15 minut',
+    refresh30: 'Co 30 minut',
+    refresh60: 'Co godzinę',
+    refreshManual: 'Tylko ręcznie',
+    saveSettings: 'Zapisz ustawienia',
+    saved: 'Zapisano!',
+    version: 'SkitourScout v0.2.0',
+  },
+
+  // Dashboard
+  dashboard: {
+    noAvalancheData: 'Brak danych lawinowych',
+    noAvalancheDataDesc: 'Beskidy nie mają oficjalnego serwisu TOPR. Dane o bezpieczeństwie pochodzą z raportów społeczności.',
+    viewReports: 'Zobacz {count} raportów →',
+  },
+
+  // Auth
+  auth: {
+    loginWith: 'Zaloguj przez',
+    continueWith: 'Kontynuuj z',
+    google: 'Google',
+    facebook: 'Facebook',
+  },
+
+  // Confidence/Data quality
+  confidence: {
+    high: 'Zweryfikowane',
+    medium: 'Aktualne',
+    low: 'Niepewne',
+    unknown: 'Niezweryfikowane',
+    justNow: 'Przed chwilą',
+    hoursAgo: '{hours}h temu',
+    daysAgo: '{days}d temu',
+    oldData: 'Stare dane',
+    dataConfidence: 'Jakość danych',
+    apiData: 'Dane z API (na żywo)',
+    webData: 'Dane z wyszukiwania',
+    aiData: 'Wygenerowane przez AI',
+    mockData: 'Dane testowe',
+  },
+
+  // Safety/Avalanche problems
+  safety: {
+    problems: {
+      windDrifted: 'Śnieg nawiewany',
+      noDistinct: 'Brak wyraźnego problemu',
+      newSnow: 'Świeży śnieg',
+      persistentWeak: 'Słabe warstwy',
+      wetSnow: 'Mokry śnieg',
+      glidingSnow: 'Śnieg ślizgowy',
+      afternoonDanger: 'Wzrost zagrożenia po południu',
+      checkReport: 'Sprawdź szczegóły w raporcie',
+      checkTopr: 'Sprawdź lawiny.topr.pl',
+    },
+    descriptions: {
+      level1: 'Niskie - Ogólnie korzystne warunki',
+      level2: 'Umiarkowane - Lokalne zagrożenie na określonym terenie',
+      level3: 'Znaczne - Niebezpieczne warunki na określonym terenie',
+      level4: 'Wysokie - Bardzo niebezpieczne warunki',
+      level5: 'Bardzo wysokie - Wyjątkowo niebezpieczne warunki',
+    },
+    recommendations: {
+      level1: [
+        'Zachowaj standardowe środki ostrożności',
+        'Korzystne warunki do skituringu',
+        'Zwracaj uwagę na pojedyncze miejsca zagrożone',
+      ],
+      level2: [
+        'Zalecany staranny dobór trasy',
+        'Unikaj stromych stoków o niekorzystnej ekspozycji',
+        'Na podejrzanym terenie poruszaj się pojedynczo',
+      ],
+      level3: [
+        'Wymagane doświadczenie w ocenie warunków',
+        'Unikaj stromych stoków (>30°) o wskazanych ekspozycjach',
+        'Zdecydowanie zalecany konserwatywny wybór terenu',
+        'Sprawdź warunki lokalne przed wyjściem',
+      ],
+      level4: [
+        'Ogranicz się do łagodnego terenu',
+        'Unikaj wszelkiego terenu lawinowego',
+        'Prawdopodobne lawiny samoistne',
+        'Rozważ przełożenie wyjścia',
+      ],
+      level5: [
+        'Unikaj wszelkiego terenu lawinowego',
+        'Wyjście niezalecane',
+        'Trzymaj się z dala od stromych stoków',
+        'Spodziewane liczne lawiny samoistne',
+      ],
+    },
+  },
+} as const;
+
+// Helper for string interpolation
+export function tr(template: string, values: Record<string, string | number>): string {
+  return template.replace(/\{(\w+)\}/g, (_, key) => String(values[key] ?? `{${key}}`));
+}

@@ -9,6 +9,7 @@
 
 import { BaseAgent, type AgentContext } from './BaseAgent';
 import type { AvalancheReport, AvalancheLevel, Aspect } from '@/types';
+import { getEdgeFunctionUrl, isSupabaseConfigured } from '@/lib/supabase';
 
 /**
  * Safety agent input parameters
@@ -110,8 +111,13 @@ export class SafetyAgent extends BaseAgent<SafetyInput, AvalancheReport | null> 
    * Fetch and parse TOPR avalanche bulletin
    */
   private async fetchTOPRReport(signal?: AbortSignal): Promise<AvalancheReport | null> {
-    // Use proxy in browser to bypass CORS
-    const url = '/api/proxy/topr/';
+    // Use Edge Function in production, local proxy in development
+    let url: string;
+    if (isSupabaseConfigured()) {
+      url = getEdgeFunctionUrl('topr-proxy') || '/api/proxy/topr/';
+    } else {
+      url = '/api/proxy/topr/';
+    }
 
     try {
       const response = await fetch(url, {
@@ -228,7 +234,7 @@ export class SafetyAgent extends BaseAgent<SafetyInput, AvalancheReport | null> 
         trend: 'stable',
         problemAspects: ['N', 'NE', 'NW'] as Aspect[], // Common problem aspects
         altitudeRange: { from: 1800, to: 2500 },
-        problems: ['Check lawiny.topr.pl for details'],
+        problems: ['Sprawdź szczegóły na lawiny.topr.pl'],
         validUntil,
         source: 'TOPR (lawiny.topr.pl)',
         reportUrl: 'https://lawiny.topr.pl/',
@@ -291,12 +297,12 @@ export class SafetyAgent extends BaseAgent<SafetyInput, AvalancheReport | null> 
   private extractProblems(report: TOPRReport): string[] {
     const problems: string[] = [];
     const problemCodes: Record<string, string> = {
-      'prwd': 'Wind-drifted snow (Śnieg nawiewany)',
-      'prnn': 'No distinct avalanche problem',
-      'prns': 'New snow (Świeży śnieg)',
-      'prps': 'Persistent weak layers (Słabe warstwy)',
-      'prww': 'Wet snow (Mokry śnieg)',
-      'prgd': 'Gliding snow (Śnieg ślizgowy)',
+      'prwd': 'Śnieg nawiewany',
+      'prnn': 'Brak wyraźnego problemu lawinowego',
+      'prns': 'Świeży śnieg',
+      'prps': 'Słabe warstwy',
+      'prww': 'Mokry śnieg',
+      'prgd': 'Śnieg ślizgowy',
     };
 
     const amProblem = report.am?.prb;
@@ -311,10 +317,10 @@ export class SafetyAgent extends BaseAgent<SafetyInput, AvalancheReport | null> 
 
     // Add time-based issues
     if (report.pm && report.pm.lev > (report.am?.lev || 0)) {
-      problems.push('Increasing danger in afternoon');
+      problems.push('Wzrost zagrożenia po południu');
     }
 
-    return problems.length > 0 ? problems : ['Check report for details'];
+    return problems.length > 0 ? problems : ['Sprawdź szczegóły w raporcie'];
   }
 
   /**
@@ -357,15 +363,15 @@ export class SafetyAgent extends BaseAgent<SafetyInput, AvalancheReport | null> 
   }
 
   /**
-   * Get danger level description
+   * Get danger level description (Polish)
    */
   static getDangerDescription(level: AvalancheLevel): string {
     const descriptions: Record<AvalancheLevel, string> = {
-      1: 'Low (Niskie) - Generally favorable conditions',
-      2: 'Moderate (Umiarkowane) - Heightened conditions on specific terrain',
-      3: 'Considerable (Znaczne) - Dangerous conditions on specific terrain',
-      4: 'High (Duże) - Very dangerous conditions',
-      5: 'Very High (Bardzo duże) - Extraordinarily dangerous conditions',
+      1: 'Niskie - Ogólnie korzystne warunki',
+      2: 'Umiarkowane - Lokalne zagrożenie na określonym terenie',
+      3: 'Znaczne - Niebezpieczne warunki na określonym terenie',
+      4: 'Wysokie - Bardzo niebezpieczne warunki',
+      5: 'Bardzo wysokie - Wyjątkowo niebezpieczne warunki',
     };
     return descriptions[level];
   }
@@ -385,37 +391,37 @@ export class SafetyAgent extends BaseAgent<SafetyInput, AvalancheReport | null> 
   }
 
   /**
-   * Get recommended actions based on danger level
+   * Get recommended actions based on danger level (Polish)
    */
   static getRecommendations(level: AvalancheLevel): string[] {
     const recommendations: Record<AvalancheLevel, string[]> = {
       1: [
-        'Standard precautions apply',
-        'Favorable conditions for ski touring',
-        'Be aware of isolated danger spots',
+        'Zachowaj standardowe środki ostrożności',
+        'Korzystne warunki do skituringu',
+        'Zwracaj uwagę na pojedyncze miejsca zagrożone',
       ],
       2: [
-        'Careful route selection recommended',
-        'Avoid steep slopes with unfavorable aspects',
-        'Travel one at a time on suspect terrain',
+        'Zalecany staranny dobór trasy',
+        'Unikaj stromych stoków o niekorzystnej ekspozycji',
+        'Na podejrzanym terenie poruszaj się pojedynczo',
       ],
       3: [
-        'Experienced judgment essential',
-        'Avoid steep slopes (>30°) on indicated aspects',
-        'Conservative terrain choices strongly advised',
-        'Check conditions with locals before departure',
+        'Wymagane doświadczenie w ocenie warunków',
+        'Unikaj stromych stoków (>30°) o wskazanych ekspozycjach',
+        'Zdecydowanie zalecany konserwatywny wybór terenu',
+        'Sprawdź warunki lokalne przed wyjściem',
       ],
       4: [
-        'Restrict travel to low-angle terrain',
-        'Avoid all avalanche terrain',
-        'Natural avalanches likely',
-        'Consider postponing trip',
+        'Ogranicz się do łagodnego terenu',
+        'Unikaj wszelkiego terenu lawinowego',
+        'Prawdopodobne lawiny samoistne',
+        'Rozważ przełożenie wyjścia',
       ],
       5: [
-        'Avoid all avalanche terrain',
-        'Travel not recommended',
-        'Stay off steep slopes entirely',
-        'Widespread natural avalanches expected',
+        'Unikaj wszelkiego terenu lawinowego',
+        'Wyjście niezalecane',
+        'Trzymaj się z dala od stromych stoków',
+        'Spodziewane liczne lawiny samoistne',
       ],
     };
     return recommendations[level];

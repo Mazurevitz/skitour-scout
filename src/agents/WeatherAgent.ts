@@ -8,7 +8,7 @@
  */
 
 import { BaseAgent, type AgentContext } from './BaseAgent';
-import type { WeatherData, WeatherCondition } from '@/types';
+import type { WeatherData, WeatherCondition, ElevationWeather, ElevationWeatherPoint } from '@/types';
 
 /**
  * Weather agent input parameters
@@ -219,5 +219,169 @@ export class WeatherAgent extends BaseAgent<WeatherInput, WeatherData> {
    */
   static getDefaultLocations(): Record<string, WeatherInput> {
     return this.getLocationsByRegion('Tatry');
+  }
+
+  /**
+   * Get elevation pairs (valley + summit) for a region
+   * Used for showing temperature gradient on routes
+   */
+  static getElevationPairs(region: string): { name: string; valley: WeatherInput; summit: WeatherInput }[] {
+    const pairs: Record<string, { name: string; valley: WeatherInput; summit: WeatherInput }[]> = {
+      'Beskid Śląski': [
+        {
+          name: 'Skrzyczne',
+          valley: { latitude: 49.7181, longitude: 19.0339, altitude: 500 },
+          summit: { latitude: 49.6847, longitude: 19.0306, altitude: 1257 },
+        },
+        {
+          name: 'Pilsko',
+          valley: { latitude: 49.5617, longitude: 19.3417, altitude: 700 },
+          summit: { latitude: 49.5456, longitude: 19.3297, altitude: 1557 },
+        },
+        {
+          name: 'Barania Góra',
+          valley: { latitude: 49.5850, longitude: 19.0450, altitude: 650 },
+          summit: { latitude: 49.5711, longitude: 19.0389, altitude: 1220 },
+        },
+      ],
+      'Beskid Żywiecki': [
+        {
+          name: 'Babia Góra',
+          valley: { latitude: 49.5850, longitude: 19.5200, altitude: 650 },
+          summit: { latitude: 49.5731, longitude: 19.5294, altitude: 1725 },
+        },
+        {
+          name: 'Pilsko',
+          valley: { latitude: 49.5617, longitude: 19.3417, altitude: 700 },
+          summit: { latitude: 49.5456, longitude: 19.3297, altitude: 1557 },
+        },
+      ],
+      'Tatry': [
+        {
+          name: 'Kasprowy Wierch',
+          valley: { latitude: 49.2700, longitude: 19.9817, altitude: 1000 },
+          summit: { latitude: 49.2317, longitude: 19.9817, altitude: 1987 },
+        },
+        {
+          name: 'Morskie Oko → Rysy',
+          valley: { latitude: 49.2014, longitude: 20.0714, altitude: 1395 },
+          summit: { latitude: 49.1794, longitude: 20.0881, altitude: 2499 },
+        },
+        {
+          name: 'Hala Gąsienicowa → Świnica',
+          valley: { latitude: 49.2383, longitude: 20.0033, altitude: 1520 },
+          summit: { latitude: 49.2186, longitude: 20.0047, altitude: 2301 },
+        },
+      ],
+    };
+    return pairs[region] || pairs['Beskid Śląski'];
+  }
+
+  /**
+   * Fetch weather for a single point (internal helper)
+   */
+  private async fetchPointWeather(
+    input: WeatherInput,
+    name: string,
+    signal?: AbortSignal
+  ): Promise<ElevationWeatherPoint> {
+    const params = new URLSearchParams({
+      latitude: input.latitude.toString(),
+      longitude: input.longitude.toString(),
+      current: [
+        'temperature_2m',
+        'apparent_temperature',
+        'weather_code',
+        'wind_speed_10m',
+        'wind_direction_10m',
+      ].join(','),
+      timezone: 'auto',
+    });
+
+    const url = `${WeatherAgent.API_BASE}?${params}`;
+    const response = await fetch(url, { signal });
+
+    if (!response.ok) {
+      throw new Error(`Weather API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const current = data.current;
+
+    return {
+      name,
+      altitude: input.altitude || 0,
+      temperature: Math.round(current.temperature_2m),
+      feelsLike: Math.round(current.apparent_temperature),
+      windSpeed: Math.round(current.wind_speed_10m),
+      windDirection: mapWindDirection(current.wind_direction_10m),
+      condition: mapWeatherCode(current.weather_code),
+    };
+  }
+
+  /**
+   * Fetch multi-elevation weather for a region
+   * Returns weather at valley and summit for each main peak
+   */
+  async fetchElevationWeather(
+    region: string,
+    signal?: AbortSignal
+  ): Promise<ElevationWeather[]> {
+    const pairs = WeatherAgent.getElevationPairs(region);
+    const results: ElevationWeather[] = [];
+
+    // Fetch all points in parallel for speed
+    const allFetches = pairs.flatMap((pair) => [
+      this.fetchPointWeather(pair.valley, `${pair.name} (dolina)`, signal),
+      this.fetchPointWeather(pair.summit, `${pair.name} (szczyt)`, signal),
+    ]);
+
+    try {
+      const allPoints = await Promise.all(allFetches);
+
+      // Group into pairs
+      for (let i = 0; i < pairs.length; i++) {
+        const valley = allPoints[i * 2];
+        const summit = allPoints[i * 2 + 1];
+
+        // Also fetch freezing level and snow for summit
+        const summitParams = new URLSearchParams({
+          latitude: pairs[i].summit.latitude.toString(),
+          longitude: pairs[i].summit.longitude.toString(),
+          hourly: 'freezing_level_height',
+          daily: 'snowfall_sum',
+          timezone: 'auto',
+          forecast_days: '1',
+        });
+
+        let freezingLevel = 1500;
+        let freshSnow24h = 0;
+
+        try {
+          const extraResponse = await fetch(`${WeatherAgent.API_BASE}?${summitParams}`, { signal });
+          if (extraResponse.ok) {
+            const extraData = await extraResponse.json();
+            freezingLevel = extraData.hourly?.freezing_level_height?.[new Date().getHours()] ?? 1500;
+            freshSnow24h = extraData.daily?.snowfall_sum?.[0] ?? 0;
+          }
+        } catch {
+          // Use defaults
+        }
+
+        results.push({
+          valley,
+          summit,
+          tempDifference: summit.temperature - valley.temperature,
+          freezingLevel: Math.round(freezingLevel),
+          freshSnow24h: Math.round(freshSnow24h * 10) / 10,
+          timestamp: new Date().toISOString(),
+          source: 'Open-Meteo',
+        });
+      }
+    } catch (error) {
+      this.warn('Failed to fetch elevation weather:', error);
+    }
+
+    return results;
   }
 }

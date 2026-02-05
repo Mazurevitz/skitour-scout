@@ -12,10 +12,9 @@ import {
   Mountain,
   Route,
   Radio,
-  AlertTriangle,
-  Users,
 } from 'lucide-react';
 import { useAppStore, useReportsStore, type NewReportInput } from '@/stores';
+import { useAuthStore } from '@/stores/useAuthStore';
 import { WeatherAgent } from '@/agents';
 import { BottomSheet } from './BottomSheet';
 import { MapView } from './MapView';
@@ -23,10 +22,15 @@ import { QuickReport } from './QuickReport';
 import { CommunityIntel } from './CommunityIntel';
 import { IntelSummary } from './IntelSummary';
 import { AvalancheIndicator } from '../AvalancheIndicator';
-import { WeatherCard } from '../WeatherCard';
 import { RouteCard } from '../RouteCard';
 import { IntelFeed } from '../IntelFeed';
 import { Settings } from '../Settings';
+import { UserDashboard } from '../UserDashboard';
+import { AdminSettings } from '../admin/AdminSettings';
+import { LoginButton } from '../auth/LoginButton';
+import { ResortConditions } from '../ResortConditions';
+import { ElevationWeatherCard } from '../ElevationWeatherCard';
+import { t } from '@/lib/translations';
 
 type ViewType = 'overview' | 'routes' | 'reports';
 
@@ -34,11 +38,12 @@ export function MobileDashboard() {
   const [activeView, setActiveView] = useState<ViewType>('overview');
   const [showSettings, setShowSettings] = useState(false);
   const [showQuickReport, setShowQuickReport] = useState(false);
+  const [showUserDashboard, setShowUserDashboard] = useState(false);
+  const [showAdminSettings, setShowAdminSettings] = useState(false);
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
   const [sheetSnap, setSheetSnap] = useState(1);
 
   const {
-    weather,
     avalancheReport,
     routes,
     webReports,
@@ -48,6 +53,7 @@ export function MobileDashboard() {
     lastRefresh,
     initialized,
     config,
+    elevationWeather,
     initialize,
     refreshAll,
     searchWeb,
@@ -60,6 +66,8 @@ export function MobileDashboard() {
     getRecentReports,
   } = useReportsStore();
 
+  const { initialize: initAuth } = useAuthStore();
+
   const regionLocations = WeatherAgent.getLocationsByRegion(config.region);
   const locationNames = Object.keys(regionLocations);
 
@@ -69,7 +77,19 @@ export function MobileDashboard() {
       initialize();
     }
     initReports();
-  }, [initialized, initialize, initReports]);
+    initAuth();
+  }, [initialized, initialize, initReports, initAuth]);
+
+  // Handle navigation from LoginButton menu
+  const handleNavigate = (view: 'dashboard' | 'settings' | 'admin') => {
+    if (view === 'dashboard') {
+      setShowUserDashboard(true);
+    } else if (view === 'settings') {
+      setShowSettings(true);
+    } else if (view === 'admin') {
+      setShowAdminSettings(true);
+    }
+  };
 
   const isLoading = loading.weather || loading.avalanche || loading.routes;
   const sortedRoutes = [...routes].sort((a, b) => b.conditionScore - a.conditionScore);
@@ -105,12 +125,12 @@ export function MobileDashboard() {
           }}
           className="bg-gray-800 text-white text-sm font-medium rounded-lg px-3 py-2 border border-gray-700 focus:outline-none focus:border-blue-500 min-h-[44px]"
         >
-          <optgroup label="Beskidy">
-            <option value="Beskid Śląski">Beskid Śląski</option>
-            <option value="Beskid Żywiecki">Beskid Żywiecki</option>
+          <optgroup label={t.regions.beskidy}>
+            <option value="Beskid Śląski">{t.regions.beskidSlaski}</option>
+            <option value="Beskid Żywiecki">{t.regions.beskidZywiecki}</option>
           </optgroup>
-          <optgroup label="Tatry">
-            <option value="Tatry">Tatry</option>
+          <optgroup label={t.regions.tatry}>
+            <option value="Tatry">{t.regions.tatry}</option>
           </optgroup>
         </select>
 
@@ -130,15 +150,16 @@ export function MobileDashboard() {
           >
             <SettingsIcon className="w-5 h-5 text-gray-400" />
           </button>
+          <LoginButton onNavigate={handleNavigate} />
         </div>
       </div>
 
       {/* Navigation tabs */}
       <div className="flex bg-gray-800/50 rounded-xl p-1">
         {[
-          { id: 'overview', label: 'Overview', icon: Mountain, badge: 0 },
-          { id: 'routes', label: 'Routes', icon: Route, badge: 0 },
-          { id: 'reports', label: 'Reports', icon: Radio, badge: recentReportsCount },
+          { id: 'overview', label: t.nav.overview, icon: Mountain, badge: 0 },
+          { id: 'routes', label: t.nav.routes, icon: Route, badge: 0 },
+          { id: 'reports', label: t.nav.reports, icon: Radio, badge: recentReportsCount },
         ].map((tab) => (
           <button
             key={tab.id}
@@ -193,7 +214,7 @@ export function MobileDashboard() {
           {/* Overview View */}
           {activeView === 'overview' && (
             <div className="space-y-4">
-              {/* Avalanche warning for Tatry */}
+              {/* Avalanche indicator - only for Tatry */}
               {isTatry && (
                 <AvalancheIndicator
                   report={avalancheReport}
@@ -202,44 +223,24 @@ export function MobileDashboard() {
                 />
               )}
 
-              {/* Beskidy warning - rely on community */}
-              {!isTatry && (
-                <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4">
-                  <div className="flex items-start gap-3">
-                    <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
-                    <div>
-                      <p className="text-amber-500 text-sm font-medium">No Official Avalanche Data</p>
-                      <p className="text-amber-500/70 text-xs mt-1">
-                        Beskidy has no TOPR coverage. Safety data comes from community reports.
-                      </p>
-                      <button
-                        onClick={() => setActiveView('reports')}
-                        className="mt-2 text-xs text-blue-400 hover:underline flex items-center gap-1"
-                      >
-                        <Users className="w-3 h-3" />
-                        View {recentReportsCount} community reports →
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Weather */}
-              <WeatherCard
-                weather={weather}
+              {/* Multi-elevation Weather */}
+              <ElevationWeatherCard
+                data={elevationWeather}
                 loading={loading.weather}
-                locationName={locationNames[0]}
               />
+
+              {/* Resort Conditions - snow depth reference & descent alternatives */}
+              <ResortConditions region={config.region} />
 
               {/* Top Routes Preview */}
               <div>
                 <div className="flex items-center justify-between mb-3">
-                  <h2 className="text-base font-semibold text-white">Top Routes</h2>
+                  <h2 className="text-base font-semibold text-white">{t.routes.topRoutes}</h2>
                   <button
                     onClick={() => setActiveView('routes')}
                     className="text-sm text-blue-400 hover:underline min-h-[44px] px-2 flex items-center"
                   >
-                    View all
+                    {t.routes.viewAll}
                   </button>
                 </div>
                 <div className="space-y-2">
@@ -262,7 +263,7 @@ export function MobileDashboard() {
               {/* Last refresh */}
               {lastRefresh && (
                 <div className="text-center text-xs text-gray-500 pt-2">
-                  Updated {new Date(lastRefresh).toLocaleTimeString([], {
+                  {t.weather.updated} {new Date(lastRefresh).toLocaleTimeString('pl-PL', {
                     hour: '2-digit',
                     minute: '2-digit',
                   })}
@@ -280,7 +281,7 @@ export function MobileDashboard() {
                     onClick={() => setSelectedRouteId(null)}
                     className="text-sm text-blue-400 hover:underline min-h-[44px] flex items-center"
                   >
-                    ← Back to all routes
+                    ← Wszystkie trasy
                   </button>
                   <RouteCard
                     route={sortedRoutes.find((r) => r.id === selectedRouteId)!}
@@ -288,7 +289,7 @@ export function MobileDashboard() {
                 </>
               ) : (
                 <>
-                  <p className="text-sm text-gray-400">{routes.length} routes evaluated</p>
+                  <p className="text-sm text-gray-400">{routes.length} tras ocenionych</p>
                   {sortedRoutes.map((route) => (
                     <div key={route.id} onClick={() => setSelectedRouteId(route.id)}>
                       <RouteCard route={route} compact />
@@ -312,7 +313,7 @@ export function MobileDashboard() {
               <div className="border-t border-gray-800 pt-4">
                 <h3 className="text-base font-semibold text-white flex items-center gap-2 mb-4">
                   <Radio className="w-4 h-4 text-green-400" />
-                  Web Sources
+                  Źródła internetowe
                 </h3>
                 <IntelFeed
                   webReports={webReports}
@@ -329,6 +330,8 @@ export function MobileDashboard() {
 
       {/* Modals */}
       {showSettings && <Settings onClose={() => setShowSettings(false)} />}
+      {showUserDashboard && <UserDashboard onClose={() => setShowUserDashboard(false)} />}
+      {showAdminSettings && <AdminSettings onClose={() => setShowAdminSettings(false)} />}
       <QuickReport
         isOpen={showQuickReport}
         onClose={() => setShowQuickReport(false)}

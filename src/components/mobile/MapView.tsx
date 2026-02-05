@@ -96,14 +96,56 @@ function createReportIcon(type: 'ascent' | 'descent'): L.DivIcon {
   });
 }
 
-// Component to handle map updates when region changes
-function MapController({ region }: { region: string }) {
+// Component to handle map updates when region or markers change
+function MapController({
+  region,
+  routes,
+  reports,
+}: {
+  region: string;
+  routes: EvaluatedRoute[];
+  reports: CommunityReport[];
+}) {
   const map = useMap();
 
   useEffect(() => {
-    const config = REGION_CONFIG[region] || REGION_CONFIG['Beskid Śląski'];
-    map.setView(config.center, config.zoom, { animate: true });
-  }, [region, map]);
+    // Collect all points with coordinates
+    const points: [number, number][] = [];
+
+    // Add route summit coordinates
+    routes.forEach((route) => {
+      if (route.summit?.lat && route.summit?.lng) {
+        points.push([route.summit.lat, route.summit.lng]);
+      }
+    });
+
+    // Add report coordinates
+    reports.forEach((report) => {
+      if (report.coordinates?.lat && report.coordinates?.lng) {
+        points.push([report.coordinates.lat, report.coordinates.lng]);
+      }
+    });
+
+    if (points.length > 0) {
+      // Create bounds from all points
+      const bounds = L.latLngBounds(points);
+
+      // Fit bounds with padding
+      // Bottom padding is larger to account for the bottom sheet (50% of screen)
+      // Top padding adds some space for the layer control
+      map.fitBounds(bounds, {
+        padding: [40, 40], // [top/bottom, left/right]
+        paddingBottomRight: [40, 40],
+        paddingTopLeft: [60, 40],
+        maxZoom: 13, // Don't zoom in too much
+        animate: true,
+      });
+    } else {
+      // No points - fall back to region center
+      const config = REGION_CONFIG[region] || REGION_CONFIG['Beskid Śląski'];
+      map.setView(config.center, config.zoom, { animate: true });
+    }
+  }, [region, routes, reports, map]);
 
   return null;
 }
@@ -115,7 +157,7 @@ function CenterOnUserButton() {
 
   const handleCenterOnUser = () => {
     if (!navigator.geolocation) {
-      alert('Geolocation not supported');
+      alert('Geolokalizacja nie jest obsługiwana');
       return;
     }
 
@@ -132,7 +174,7 @@ function CenterOnUserButton() {
       (error) => {
         console.error('Geolocation error:', error);
         setIsLocating(false);
-        alert('Could not get your location');
+        alert('Nie udało się pobrać lokalizacji');
       },
       { enableHighAccuracy: true, timeout: 10000 }
     );
@@ -143,7 +185,7 @@ function CenterOnUserButton() {
       onClick={handleCenterOnUser}
       disabled={isLocating}
       className="absolute top-4 right-4 z-[1000] w-10 h-10 bg-gray-900/90 hover:bg-gray-800 rounded-lg flex items-center justify-center shadow-lg transition-colors disabled:opacity-50"
-      title="Center on my location"
+      title="Centruj na mojej lokalizacji"
     >
       {isLocating ? (
         <Loader2 className="w-5 h-5 text-blue-400 animate-spin" />
@@ -175,8 +217,8 @@ export function MapView({
         zoomControl={false}
         attributionControl={false}
       >
-        {/* Map controller for region changes */}
-        <MapController region={region} />
+        {/* Map controller for region changes and auto-fit bounds */}
+        <MapController region={region} routes={routes} reports={reportsWithCoords} />
 
         {/* Center on user button */}
         <CenterOnUserButton />
@@ -225,7 +267,7 @@ export function MapView({
               <div className="p-1">
                 <h3 className="font-bold text-sm">{route.name}</h3>
                 <p className="text-xs text-gray-600">
-                  {route.summit.altitude}m • {route.elevation}m gain
+                  {route.summit.altitude}m • +{route.elevation}m
                 </p>
                 <div className="mt-1 flex items-center gap-2">
                   <span
@@ -237,7 +279,7 @@ export function MapView({
                         : 'bg-red-500'
                     }`}
                   >
-                    Score: {route.conditionScore}
+                    Ocena: {route.conditionScore}
                   </span>
                   <span className="text-xs text-gray-500">{route.difficulty}</span>
                 </div>
@@ -270,15 +312,15 @@ export function MapView({
                 <h3 className="font-bold text-sm">{report.location}</h3>
                 {report.type === 'ascent' && report.ascent && (
                   <p className="text-xs text-gray-600">
-                    Track: {report.ascent.trackStatus}
+                    Trasa: {report.ascent.trackStatus}
                     {report.ascent.gearNeeded.length > 0 && (
-                      <> • Gear: {report.ascent.gearNeeded.join(', ')}</>
+                      <> • Sprzęt: {report.ascent.gearNeeded.join(', ')}</>
                     )}
                   </p>
                 )}
                 {report.type === 'descent' && report.descent && (
                   <p className="text-xs text-gray-600">
-                    Snow: {report.descent.snowCondition} • Rating: {'★'.repeat(report.descent.qualityRating)}
+                    Śnieg: {report.descent.snowCondition} • {'★'.repeat(report.descent.qualityRating)}
                   </p>
                 )}
                 {report.notes && (

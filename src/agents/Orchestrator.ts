@@ -243,7 +243,7 @@ export class Orchestrator extends BaseAgent<OrchestratorInput, OrchestratorOutpu
   }
 
   /**
-   * Identify risk factors for a route
+   * Identify risk factors for a route (Polish)
    */
   private identifyRiskFactors(
     route: Route,
@@ -253,31 +253,31 @@ export class Orchestrator extends BaseAgent<OrchestratorInput, OrchestratorOutpu
     const risks: string[] = [];
 
     if (!avalanche) {
-      risks.push('Avalanche data unavailable - check local conditions');
+      risks.push('Brak danych lawinowych - sprawdź warunki lokalne');
     } else {
       if (avalanche.level >= 3) {
-        risks.push(`Avalanche danger level ${avalanche.level}`);
+        risks.push(`Stopień zagrożenia lawinowego: ${avalanche.level}`);
       }
       const hasProblematicAspect = route.aspects.some((a) =>
         avalanche.problemAspects.includes(a)
       );
       if (hasProblematicAspect) {
-        risks.push('Route crosses problem aspects');
+        risks.push('Trasa przecina problematyczne ekspozycje');
       }
       avalanche.problems.forEach((problem) => risks.push(problem));
     }
 
     if (!weather) {
-      risks.push('Weather data unavailable');
+      risks.push('Brak danych pogodowych');
     } else {
       if (weather.windSpeed > 40) {
-        risks.push('High winds');
+        risks.push('Silny wiatr');
       }
       if (weather.visibility < 2) {
-        risks.push('Poor visibility');
+        risks.push('Słaba widoczność');
       }
       if (weather.temperature > 5 && route.summit.altitude < 2000) {
-        risks.push('Warm temperatures - wet slide risk');
+        risks.push('Ciepło - ryzyko mokrych lawin');
       }
     }
 
@@ -285,7 +285,7 @@ export class Orchestrator extends BaseAgent<OrchestratorInput, OrchestratorOutpu
   }
 
   /**
-   * Generate recommendation text
+   * Generate recommendation text (Polish)
    */
   private generateRecommendation(
     route: Route,
@@ -296,22 +296,22 @@ export class Orchestrator extends BaseAgent<OrchestratorInput, OrchestratorOutpu
   ): string {
     // If no real data, emphasize uncertainty
     if (!weather && !avalanche) {
-      return `Insufficient data to evaluate ${route.name}. Check local conditions before departure.`;
+      return `Niewystarczające dane dla ${route.name}. Sprawdź warunki lokalne przed wyjściem.`;
     }
 
     if (score >= 80) {
-      return `Conditions appear favorable for ${route.name} based on available data.`;
+      return `Warunki wyglądają korzystnie dla ${route.name}.`;
     } else if (score >= 60) {
-      return `Moderate conditions. ${riskFactors.length > 0 ? `Watch for: ${riskFactors[0]}.` : ''}`;
+      return `Umiarkowane warunki. ${riskFactors.length > 0 ? `Uwaga na: ${riskFactors[0]}.` : ''}`;
     } else if (score >= 40) {
-      return `Exercise caution. ${riskFactors.slice(0, 2).join(', ')}.`;
+      return `Zachowaj ostrożność. ${riskFactors.slice(0, 2).join(', ')}.`;
     } else {
-      return `Conditions not recommended. Risks: ${riskFactors.slice(0, 3).join(', ')}.`;
+      return `Warunki niezalecane. Ryzyka: ${riskFactors.slice(0, 3).join(', ')}.`;
     }
   }
 
   /**
-   * Suggest optimal time for the route
+   * Suggest optimal time for the route (Polish)
    */
   private suggestOptimalTime(
     route: Route,
@@ -319,23 +319,23 @@ export class Orchestrator extends BaseAgent<OrchestratorInput, OrchestratorOutpu
     avalanche?: AvalancheReport
   ): string {
     if (!weather && !avalanche) {
-      return 'Check local conditions for timing advice';
+      return 'Sprawdź warunki lokalne';
     }
 
     // Early starts are generally safer for avalanche terrain
     if (avalanche && avalanche.level >= 2) {
       // South-facing slopes: very early to avoid afternoon warming
       if (route.aspects.some((a) => ['S', 'SE', 'SW'].includes(a))) {
-        return 'Very early start (before 6:00) - descend by noon';
+        return 'Bardzo wczesny start (przed 6:00) - zjazd przed południem';
       }
-      return 'Early start (6:00-7:00) recommended';
+      return 'Zalecany wczesny start (6:00-7:00)';
     }
 
     if (weather && weather.condition === 'clear') {
-      return 'Morning start for best conditions and views';
+      return 'Poranny start - najlepsze warunki i widoki';
     }
 
-    return 'Standard start time appropriate';
+    return 'Standardowa pora startu odpowiednia';
   }
 
   /**

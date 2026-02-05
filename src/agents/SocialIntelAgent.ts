@@ -15,6 +15,7 @@ import {
   type DataConfidence,
   type WithConfidence,
 } from '@/types/confidence';
+import { getEdgeFunctionUrl, isSupabaseConfigured } from '@/lib/supabase';
 
 /**
  * Structured condition intel from social sources
@@ -55,27 +56,27 @@ export interface SocialIntelInput {
 }
 
 /**
- * LLM extraction prompt template
+ * LLM extraction prompt template (Polish)
  */
-const EXTRACTION_PROMPT = `You are analyzing a ski touring condition report from Poland. Extract structured information from this text.
+const EXTRACTION_PROMPT = `Analizujesz raport o warunkach skiturowych z Polski. Wyodrębnij informacje z tego tekstu.
 
-TEXT TO ANALYZE:
+TEKST DO ANALIZY:
 """
 {title}
 {snippet}
 """
 
-Extract the following in JSON format:
+Wyodrębnij dane w formacie JSON:
 {
-  "location": "specific mountain/trail name mentioned, or 'unknown'",
-  "snow_type": "one of: puch (powder), firn (corn), szren (wind crust), beton (hard/icy), cukier (sugar), kamienie (rocks), mokry (wet), or null if unclear",
-  "hazards": ["list of hazards mentioned: lawina/avalanche, lód/ice, mgła/fog, wiatr/wind, kamienie/rocks, etc."],
-  "timestamp": "ISO date if mentioned, or 'recent' if seems current",
-  "conditions_rating": "good, moderate, poor, or unknown based on overall tone",
-  "observations": ["2-3 key observations from the text in English"]
+  "location": "nazwa góry/szlaku lub 'nieznane'",
+  "snow_type": "jedno z: puch, firn, szreń, beton, cukier, kamienie, mokry, lub null jeśli nieznane",
+  "hazards": ["lista zagrożeń: lawina, lód, mgła, wiatr, kamienie, itp."],
+  "timestamp": "data ISO jeśli podana, lub 'recent' jeśli aktualne",
+  "conditions_rating": "good (dobre), moderate (średnie), poor (słabe), lub unknown",
+  "observations": ["2-3 kluczowe obserwacje z tekstu PO POLSKU"]
 }
 
-Respond ONLY with valid JSON, no explanation.`;
+Odpowiedz TYLKO poprawnym JSON, bez wyjaśnień.`;
 
 /**
  * Social Intel Agent - LLM-powered condition parsing
@@ -132,10 +133,7 @@ export class SocialIntelAgent extends BaseAgent<SocialIntelInput, WithConfidence
     }
 
     // Process each result with LLM if available
-    const hasLLM = context.llmConfig && (
-      context.llmConfig.provider === 'ollama' ||
-      (context.llmConfig.provider === 'openrouter' && context.llmConfig.openrouterApiKey)
-    );
+    const hasLLM = context.llmEnabled && isSupabaseConfigured();
 
     for (const result of uniqueResults.slice(0, limit)) {
       try {
@@ -174,7 +172,7 @@ export class SocialIntelAgent extends BaseAgent<SocialIntelInput, WithConfidence
     result: { title: string; snippet: string; url: string; source: string },
     context: AgentContext
   ): Promise<StructuredIntel> {
-    const llm = new LLMService(context.llmConfig!);
+    const llm = new LLMService();
 
     const prompt = EXTRACTION_PROMPT
       .replace('{title}', result.title)
@@ -183,7 +181,7 @@ export class SocialIntelAgent extends BaseAgent<SocialIntelInput, WithConfidence
     try {
       const response = await llm.prompt(
         prompt,
-        'You are a ski touring conditions analyst. Extract structured data from reports. Respond only with valid JSON.',
+        'Jesteś analitykiem warunków skiturowych. Wyodrębniasz dane z raportów. Odpowiadaj tylko poprawnym JSON.',
         { signal: context.signal }
       );
 
@@ -205,12 +203,7 @@ export class SocialIntelAgent extends BaseAgent<SocialIntelInput, WithConfidence
         source_url: result.url,
         source_name: result.source,
         raw_snippet: result.snippet.slice(0, 200),
-        confidence: aiConfidence(
-          context.llmConfig?.provider === 'ollama'
-            ? context.llmConfig.ollamaModel || 'ollama'
-            : context.llmConfig?.openrouterModel || 'openrouter',
-          result.source
-        ),
+        confidence: aiConfidence(llm.getModel(), result.source),
       };
     } catch (error) {
       this.warn('LLM extraction failed, falling back to regex:', error);
@@ -276,17 +269,17 @@ export class SocialIntelAgent extends BaseAgent<SocialIntelInput, WithConfidence
   }
 
   /**
-   * Detect hazards from text
+   * Detect hazards from text (Polish labels)
    */
   private detectHazards(text: string): string[] {
     const hazards: string[] = [];
     const patterns: [RegExp, string][] = [
-      [/lawin|avalanche/i, 'avalanche risk'],
-      [/lód|ice|oblodz/i, 'icy conditions'],
-      [/mgła|fog|zamglen/i, 'poor visibility'],
-      [/wiatr|wind|halny/i, 'strong wind'],
-      [/kamien|rock|skał/i, 'exposed rocks'],
-      [/niebezp|danger|uwaga|warn/i, 'general warning'],
+      [/lawin|avalanche/i, 'ryzyko lawinowe'],
+      [/lód|ice|oblodz/i, 'oblodzenie'],
+      [/mgła|fog|zamglen/i, 'słaba widoczność'],
+      [/wiatr|wind|halny/i, 'silny wiatr'],
+      [/kamien|rock|skał/i, 'odsłonięte skały'],
+      [/niebezp|danger|uwaga|warn/i, 'uwaga'],
     ];
 
     for (const [pattern, hazard] of patterns) {
@@ -313,7 +306,7 @@ export class SocialIntelAgent extends BaseAgent<SocialIntelInput, WithConfidence
         return loc;
       }
     }
-    return 'Unknown';
+    return 'Nieznana';
   }
 
   /**
@@ -425,7 +418,15 @@ export class SocialIntelAgent extends BaseAgent<SocialIntelInput, WithConfidence
     signal?: AbortSignal
   ): Promise<Array<{ title: string; snippet: string; url: string; source: string }>> {
     const encodedQuery = encodeURIComponent(query);
-    const url = `/api/proxy/ddg/html/?q=${encodedQuery}`;
+
+    // Use Edge Function in production, local proxy in development
+    let url: string;
+    if (isSupabaseConfigured()) {
+      const edgeUrl = getEdgeFunctionUrl('search-proxy');
+      url = `${edgeUrl}?q=${encodedQuery}`;
+    } else {
+      url = `/api/proxy/ddg/html/?q=${encodedQuery}`;
+    }
 
     const response = await fetch(url, { signal });
     if (!response.ok) throw new Error(`Search failed: ${response.status}`);

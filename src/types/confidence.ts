@@ -109,15 +109,15 @@ export function apiConfidence(sourceName: string, sourceUrl?: string): DataConfi
 }
 
 /**
- * Create confidence metadata for static/mock data
+ * Create confidence metadata for static/mock data (Polish)
  */
 export function staticConfidence(notes?: string): DataConfidence {
   return {
     level: 'unknown',
     sourceType: 'static',
-    sourceName: 'Mock Data',
+    sourceName: 'Dane testowe',
     fetchedAt: new Date().toISOString(),
-    notes: notes ?? 'This is placeholder data, not from a real source',
+    notes: notes ?? 'To są dane zastępcze, nie pochodzą z prawdziwego źródła',
   };
 }
 
@@ -142,7 +142,7 @@ export function searchConfidence(
 }
 
 /**
- * Create confidence metadata for AI-generated content
+ * Create confidence metadata for AI-generated content (Polish)
  */
 export function aiConfidence(model: string, basedOn?: string): DataConfidence {
   return {
@@ -150,7 +150,7 @@ export function aiConfidence(model: string, basedOn?: string): DataConfidence {
     sourceType: 'ai_generated',
     sourceName: `AI (${model})`,
     fetchedAt: new Date().toISOString(),
-    notes: basedOn ? `Generated based on: ${basedOn}` : 'AI-generated content',
+    notes: basedOn ? `Wygenerowane na podstawie: ${basedOn}` : 'Treść wygenerowana przez AI',
   };
 }
 
@@ -187,18 +187,18 @@ export function getConfidenceBgColor(level: ConfidenceLevel): string {
 }
 
 /**
- * Get label for confidence level
+ * Get label for confidence level (Polish)
  */
 export function getConfidenceLabel(level: ConfidenceLevel): string {
   switch (level) {
     case 'high':
-      return 'Verified';
+      return 'Zweryfikowane';
     case 'medium':
-      return 'Recent';
+      return 'Aktualne';
     case 'low':
-      return 'Uncertain';
+      return 'Niepewne';
     case 'unknown':
-      return 'Unverified';
+      return 'Niezweryfikowane';
   }
 }
 

@@ -6,6 +6,9 @@
 // Re-export confidence types
 export * from './confidence';
 
+// Re-export resort types
+export * from './resort';
+
 /** Avalanche danger levels (European scale 1-5) */
 export type AvalancheLevel = 1 | 2 | 3 | 4 | 5;
 
@@ -51,6 +54,46 @@ export interface WeatherData {
   /** Freezing level (m) */
   freezingLevel: number;
   /** Timestamp of data */
+  timestamp: string;
+  /** Data source */
+  source: string;
+}
+
+/**
+ * Weather at a specific elevation point
+ */
+export interface ElevationWeatherPoint {
+  /** Location name */
+  name: string;
+  /** Altitude in meters */
+  altitude: number;
+  /** Temperature in Celsius */
+  temperature: number;
+  /** Feels-like temperature */
+  feelsLike: number;
+  /** Wind speed in km/h */
+  windSpeed: number;
+  /** Wind direction */
+  windDirection: string;
+  /** Weather condition */
+  condition: WeatherCondition;
+}
+
+/**
+ * Multi-elevation weather data (valley to summit)
+ */
+export interface ElevationWeather {
+  /** Valley/start point weather */
+  valley: ElevationWeatherPoint;
+  /** Summit/end point weather */
+  summit: ElevationWeatherPoint;
+  /** Temperature difference (summit - valley) */
+  tempDifference: number;
+  /** Freezing level in meters */
+  freezingLevel: number;
+  /** Fresh snow in last 24h (cm) - summit */
+  freshSnow24h: number;
+  /** Timestamp */
   timestamp: string;
   /** Data source */
   source: string;
@@ -211,50 +254,8 @@ export interface AgentInfo {
   lastError?: string;
 }
 
-/** LLM provider type */
-export type LLMProvider = 'ollama' | 'openrouter';
-
-/**
- * Application configuration
- */
-export interface AppConfig {
-  /** Preferred region */
-  region: string;
-  /** Refresh interval in minutes */
-  refreshInterval: number;
-  /** Enabled agents */
-  enabledAgents: string[];
-  /** MCP server configurations */
-  mcpServers: MCPServerConfig[];
-  /** LLM provider to use */
-  llmProvider: LLMProvider;
-  /** Ollama base URL */
-  ollamaUrl: string;
-  /** Ollama model name */
-  ollamaModel: string;
-  /** OpenRouter API key */
-  openrouterApiKey?: string;
-  /** OpenRouter model */
-  openrouterModel: string;
-}
-
-/**
- * MCP Server configuration
- */
-export interface MCPServerConfig {
-  /** Server identifier */
-  id: string;
-  /** Server name */
-  name: string;
-  /** Server URL or command */
-  endpoint: string;
-  /** Server type */
-  type: 'stdio' | 'http' | 'websocket';
-  /** Whether server is enabled */
-  enabled: boolean;
-  /** Additional server options */
-  options?: Record<string, unknown>;
-}
+// Note: AppConfig is now defined in useAppStore.ts with a simpler structure
+// LLM configuration is handled server-side via Supabase Edge Functions
 
 /**
  * Dashboard state

@@ -9,10 +9,10 @@
 
 import { create } from 'zustand';
 import type {
-  AppConfig,
   DashboardState,
   Route,
   Aspect,
+  ElevationWeather,
 } from '@/types';
 import {
   Orchestrator,
@@ -21,16 +21,23 @@ import {
   type AgentContext,
   type ConditionReport,
 } from '@/agents';
+import { isSupabaseConfigured } from '@/lib/supabase';
+
+/**
+ * Simplified app configuration (LLM config moved to server-side)
+ */
+export interface AppConfig {
+  region: string;
+  refreshInterval: number;
+  enabledAgents: string[];
+}
 
 /**
  * Search status for feedback
  */
 interface SearchStatus {
-  /** Status of last search */
   status: 'idle' | 'success' | 'error' | 'no_results';
-  /** Error message if failed */
   message?: string;
-  /** When the search was performed */
   timestamp?: string;
 }
 
@@ -38,38 +45,26 @@ interface SearchStatus {
  * Application store state
  */
 interface AppState extends DashboardState {
-  /** Application configuration */
   config: AppConfig;
-  /** Is initial load complete */
   initialized: boolean;
-  /** Orchestrator instance */
   orchestrator: Orchestrator;
-  /** Web search results */
   webReports: ConditionReport[];
-  /** Is web search in progress */
   searchingWeb: boolean;
-  /** Search status for feedback */
   searchStatus: SearchStatus;
+  /** Multi-elevation weather data */
+  elevationWeather: ElevationWeather[];
 }
 
 /**
  * Application store actions
  */
 interface AppActions {
-  /** Initialize the application */
   initialize: () => Promise<void>;
-  /** Refresh all data */
   refreshAll: () => Promise<void>;
-  /** Refresh weather only */
   refreshWeather: () => Promise<void>;
-  /** Search web for condition reports, optionally for a specific location */
   searchWeb: (location?: string) => Promise<void>;
-  /** Clear all data */
   clearData: () => void;
-  /** Update configuration */
   updateConfig: (config: Partial<AppConfig>) => void;
-  /** Save LLM configuration to localStorage */
-  saveLLMConfig: () => void;
 }
 
 /**
@@ -267,12 +262,6 @@ const defaultConfig: AppConfig = {
   region: 'Beskid Śląski',
   refreshInterval: 30,
   enabledAgents: ['weather', 'safety', 'social'],
-  mcpServers: [],
-  // LLM settings - Ollama is default (local, free)
-  llmProvider: 'ollama',
-  ollamaUrl: 'http://localhost:11434',
-  ollamaModel: 'llama3.2',
-  openrouterModel: 'meta-llama/llama-3.2-3b-instruct:free',
 };
 
 /**
@@ -295,27 +284,29 @@ const initialDashboardState: DashboardState = {
  * Application store
  */
 export const useAppStore = create<AppState & AppActions>((set, get) => ({
-  // Additional state
   webReports: [],
   searchingWeb: false,
   searchStatus: { status: 'idle' },
-  // Initial state
+  elevationWeather: [],
   ...initialDashboardState,
   config: defaultConfig,
   initialized: false,
   orchestrator: new Orchestrator(),
 
-  // Actions
   initialize: async () => {
     const { refreshAll } = get();
 
-    // Try to load saved LLM config from localStorage
+    // Try to load saved config from localStorage (region, refresh interval only)
     try {
-      const savedConfig = localStorage.getItem('llm_config');
+      const savedConfig = localStorage.getItem('app_config');
       if (savedConfig) {
         const parsed = JSON.parse(savedConfig);
         set((state) => ({
-          config: { ...state.config, ...parsed },
+          config: {
+            ...state.config,
+            region: parsed.region || state.config.region,
+            refreshInterval: parsed.refreshInterval || state.config.refreshInterval,
+          },
         }));
       }
     } catch {
@@ -326,22 +317,6 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
 
     // Initial data fetch
     await refreshAll();
-  },
-
-  saveLLMConfig: () => {
-    const { config } = get();
-    try {
-      const llmConfig = {
-        llmProvider: config.llmProvider,
-        ollamaUrl: config.ollamaUrl,
-        ollamaModel: config.ollamaModel,
-        openrouterApiKey: config.openrouterApiKey,
-        openrouterModel: config.openrouterModel,
-      };
-      localStorage.setItem('llm_config', JSON.stringify(llmConfig));
-    } catch {
-      // localStorage not available
-    }
   },
 
   refreshAll: async () => {
@@ -356,38 +331,39 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
       },
     });
 
-    // Get locations and routes for the selected region
     const regionLocations = WeatherAgent.getLocationsByRegion(config.region);
     const locationNames = Object.keys(regionLocations);
     const primaryLocation = regionLocations[locationNames[0]];
     const regionRoutes = getRoutesForRegion(config.region);
 
+    // LLM is enabled if Supabase is configured (server handles the API key)
     const context: AgentContext = {
       region: config.region,
-      llmConfig: {
-        provider: config.llmProvider,
-        ollamaUrl: config.ollamaUrl,
-        ollamaModel: config.ollamaModel,
-        openrouterApiKey: config.openrouterApiKey,
-        openrouterModel: config.openrouterModel,
-      },
+      llmEnabled: isSupabaseConfigured(),
     };
 
     try {
-      const result = await orchestrator.run(
-        {
-          location: primaryLocation,
-          fetchAvalanche: true,
-          routes: regionRoutes,
-        },
-        context
-      );
+      // Fetch orchestrator data and elevation weather in parallel
+      const weatherAgent = new WeatherAgent();
+
+      const [result, elevationData] = await Promise.all([
+        orchestrator.run(
+          {
+            location: primaryLocation,
+            fetchAvalanche: true,
+            routes: regionRoutes,
+          },
+          context
+        ),
+        weatherAgent.fetchElevationWeather(config.region),
+      ]);
 
       if (result.success && result.data) {
         set({
           weather: result.data.weather ?? null,
           avalancheReport: result.data.avalanche ?? null,
           routes: result.data.routes ?? [],
+          elevationWeather: elevationData,
           lastRefresh: new Date().toISOString(),
         });
       }
@@ -439,19 +415,12 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
     const regionLocations = WeatherAgent.getLocationsByRegion(config.region);
     const locationNames = Object.keys(regionLocations);
 
-    // If a specific location is provided, use only that; otherwise use all
     const searchLocations = specificLocation ? [specificLocation] : locationNames;
     const searchRegion = specificLocation || config.region;
 
     const context: AgentContext = {
       region: config.region,
-      llmConfig: {
-        provider: config.llmProvider,
-        ollamaUrl: config.ollamaUrl,
-        ollamaModel: config.ollamaModel,
-        openrouterApiKey: config.openrouterApiKey,
-        openrouterModel: config.openrouterModel,
-      },
+      llmEnabled: isSupabaseConfigured(),
     };
 
     try {
@@ -513,8 +482,20 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
   },
 
   updateConfig: (newConfig: Partial<AppConfig>) => {
-    set((state) => ({
-      config: { ...state.config, ...newConfig },
-    }));
+    set((state) => {
+      const updated = { ...state.config, ...newConfig };
+
+      // Save to localStorage
+      try {
+        localStorage.setItem('app_config', JSON.stringify({
+          region: updated.region,
+          refreshInterval: updated.refreshInterval,
+        }));
+      } catch {
+        // localStorage not available
+      }
+
+      return { config: updated };
+    });
   },
 }));

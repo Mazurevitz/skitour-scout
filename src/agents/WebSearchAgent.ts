@@ -15,6 +15,7 @@ import {
   type DataConfidence,
   type WithConfidence,
 } from '@/types/confidence';
+import { getEdgeFunctionUrl, isSupabaseConfigured } from '@/lib/supabase';
 
 /**
  * Search result from web
@@ -85,29 +86,36 @@ export class WebSearchAgent extends BaseAgent<WebSearchInput, WithConfidence<Con
 
     const { locations = [], limit = 5 } = input;
 
-    // Build search queries
+    // Build search queries - more queries for wider coverage
     const queries = this.buildSearchQueries(input.region, locations);
     this.log(`Search queries: ${queries.join(', ')}`);
 
-    // Fetch search results (using DuckDuckGo HTML - no API key needed)
+    // Fetch search results from multiple queries in parallel for speed
     const allResults: SearchResult[] = [];
     const searchErrors: string[] = [];
+    const queriesToRun = queries.slice(0, 5); // Run up to 5 queries
 
-    for (const query of queries.slice(0, 3)) {
+    const searchPromises = queriesToRun.map(async (query) => {
       try {
         const results = await this.searchDuckDuckGo(query, context.signal);
         this.log(`Query "${query}" returned ${results.length} results`);
-        allResults.push(...results);
+        return results;
       } catch (error) {
         const msg = error instanceof Error ? error.message : 'Unknown error';
         searchErrors.push(`"${query}": ${msg}`);
         this.warn(`Search failed for "${query}":`, error);
+        return [];
       }
+    });
+
+    const resultsArrays = await Promise.all(searchPromises);
+    for (const results of resultsArrays) {
+      allResults.push(...results);
     }
 
-    // Deduplicate by URL
+    // Deduplicate and filter by domain/content
     const uniqueResults = this.deduplicateResults(allResults);
-    this.log(`Found ${uniqueResults.length} unique results total`);
+    this.log(`Found ${uniqueResults.length} unique results after filtering`);
 
     // If no results from search, return empty with info about what was tried
     if (uniqueResults.length === 0) {
@@ -119,14 +127,23 @@ export class WebSearchAgent extends BaseAgent<WebSearchInput, WithConfidence<Con
           sourceType: 'search',
           sourceName: 'Web Search (DuckDuckGo)',
           fetchedAt: new Date().toISOString(),
-          notes: `No results found. Queries tried: ${queries.slice(0, 3).join(', ')}`,
+          notes: `No results found. Queries tried: ${queriesToRun.join(', ')}`,
         },
       };
     }
 
-    // Process results into condition reports
+    // Score all results and take only the most relevant ones
+    const scoredResults = uniqueResults
+      .map(r => ({ result: r, score: this.scoreRelevance(r) }))
+      .filter(r => r.score >= 3) // Minimum relevance threshold
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit + 2); // Get a few extra for processing
+
+    this.log(`Top ${scoredResults.length} results by relevance: ${scoredResults.map(r => `${r.result.source}(${r.score})`).join(', ')}`);
+
+    // Process only the most relevant results
     const reports = await this.processResults(
-      uniqueResults.slice(0, limit),
+      scoredResults.map(r => r.result).slice(0, limit),
       context
     );
 
@@ -145,41 +162,71 @@ export class WebSearchAgent extends BaseAgent<WebSearchInput, WithConfidence<Con
 
   /**
    * Build search queries for the region
+   * Wide coverage with varied query types
    */
   private buildSearchQueries(region: string, locations: string[]): string[] {
     const queries: string[] = [];
-    const year = new Date().getFullYear();
 
-    // Polish search terms for ski touring conditions
-    const conditionTerms = [
-      'warunki narciarskie',
-      'skituring',
-      'warunki śniegowe',
-      'ski touring',
-    ];
+    // Get current date context
+    const now = new Date();
+    const monthNames = ['styczeń', 'luty', 'marzec', 'kwiecień', 'maj', 'czerwiec',
+                        'lipiec', 'sierpień', 'wrzesień', 'październik', 'listopad', 'grudzień'];
+    const currentMonth = monthNames[now.getMonth()];
+    const year = now.getFullYear();
+
+    // Also check previous month for recent reports
+    const prevMonthIdx = now.getMonth() === 0 ? 11 : now.getMonth() - 1;
+    const prevMonth = monthNames[prevMonthIdx];
 
     // If we have specific locations (1-2), prioritize them
     if (locations.length <= 2 && locations.length > 0) {
-      // Specific location search - more targeted queries
       for (const location of locations) {
-        queries.push(`${location} warunki narciarskie ${year}`);
-        queries.push(`${location} skituring warunki`);
-        queries.push(`${location} śnieg zima`);
-        queries.push(`${location} narty`);
+        queries.push(`"${location}" skituring relacja ${year}`);
+        queries.push(`"${location}" narty skiturowe warunki ${currentMonth}`);
+        queries.push(`${location} warunki śnieg ${year}`);
+        queries.push(`${location} ski touring conditions`);
       }
     } else {
-      // Region-wide search
-      queries.push(`${region} ${conditionTerms[0]} ${year}`);
-      queries.push(`${region} skituring`);
+      // Region-wide search - multiple query strategies
 
-      // Add location-specific queries for variety
-      for (const location of locations.slice(0, 2)) {
-        queries.push(`${location} warunki narciarskie`);
+      // 1. Current month ski touring reports
+      queries.push(`${region} skituring relacja ${currentMonth} ${year}`);
+      queries.push(`${region} skituring ${prevMonth} ${year}`);
+
+      // 2. General ski touring conditions
+      queries.push(`${region} narty skiturowe warunki ${year}`);
+      queries.push(`${region} warunki śniegowe skituring`);
+
+      // 3. Trip reports and blogs
+      queries.push(`${region} relacja narciarska ${year}`);
+      queries.push(`skituring ${region} blog`);
+
+      // 4. Location-specific queries for top locations
+      for (const location of locations.slice(0, 3)) {
+        queries.push(`${location} skituring warunki ${year}`);
       }
+
+      // 5. Forum discussions
+      queries.push(`${region} warunki forum narciarskie`);
     }
 
     return queries;
   }
+
+  /**
+   * Domains to exclude (resorts, weather sites without conditions)
+   */
+  private readonly EXCLUDED_DOMAINS = [
+    'booking.com',
+    'tripadvisor',
+    'nocowanie.pl',
+    'gorace-zrodla.pl',
+    'szczyrkowski.pl', // Resort, not touring
+    'beskidsportarena.pl', // Resort
+    'kotelnica.pl', // Resort
+    'wikipedia.org',
+    'facebook.com',
+  ];
 
   /**
    * Search using DuckDuckGo HTML (no API key needed)
@@ -189,8 +236,16 @@ export class WebSearchAgent extends BaseAgent<WebSearchInput, WithConfidence<Con
     signal?: AbortSignal
   ): Promise<SearchResult[]> {
     const encodedQuery = encodeURIComponent(query);
-    // Use proxy in browser to bypass CORS
-    const url = `/api/proxy/ddg/html/?q=${encodedQuery}`;
+
+    // Use Edge Function in production, local proxy in development
+    let url: string;
+    if (isSupabaseConfigured()) {
+      const edgeUrl = getEdgeFunctionUrl('search-proxy');
+      url = `${edgeUrl}?q=${encodedQuery}`;
+    } else {
+      // Fallback to local proxy for development
+      url = `/api/proxy/ddg/html/?q=${encodedQuery}`;
+    }
 
     try {
       const response = await fetch(url, {
@@ -331,19 +386,87 @@ export class WebSearchAgent extends BaseAgent<WebSearchInput, WithConfidence<Con
   }
 
   /**
-   * Deduplicate results by URL
+   * Deduplicate and filter results by URL
    */
   private deduplicateResults(results: SearchResult[]): SearchResult[] {
     const seen = new Set<string>();
     return results.filter((r) => {
+      // Skip duplicates
       if (seen.has(r.url)) return false;
       seen.add(r.url);
+
+      // Filter out excluded domains
+      const domain = r.source.toLowerCase();
+      if (this.EXCLUDED_DOMAINS.some(ex => domain.includes(ex))) {
+        this.log(`Filtered out: ${r.source} (excluded domain)`);
+        return false;
+      }
+
+      // Filter out results that look like resort/lift status pages
+      const lowerSnippet = r.snippet.toLowerCase();
+      const lowerTitle = r.title.toLowerCase();
+      const resortKeywords = ['wyciąg', 'kolej', 'gondola', 'karnet', 'cennik', 'naśnieżanie', 'ośrodek narciarski'];
+      if (resortKeywords.some(kw => lowerSnippet.includes(kw) || lowerTitle.includes(kw))) {
+        // Only filter if it doesn't also mention skituring
+        if (!lowerSnippet.includes('skitur') && !lowerSnippet.includes('ski tour')) {
+          this.log(`Filtered out: ${r.title} (resort info)`);
+          return false;
+        }
+      }
+
       return true;
     });
   }
 
   /**
+   * Score result relevance for ski touring
+   */
+  private scoreRelevance(result: SearchResult): number {
+    let score = 0;
+    const text = (result.title + ' ' + result.snippet).toLowerCase();
+    const source = result.source.toLowerCase();
+
+    // High relevance keywords (ski touring specific) - +10 each
+    const highRelevance = ['skituring', 'skitur', 'ski touring', 'narty skiturowe', 'foki', 'harszle', 'narciarstwo wysokogórskie'];
+    for (const kw of highRelevance) {
+      if (text.includes(kw)) score += 10;
+    }
+
+    // Medium relevance (trip reports, conditions) - +4 each
+    const mediumRelevance = ['relacja', 'raport', 'warunki', 'podejście', 'zjazd', 'trasa', 'wycieczka'];
+    for (const kw of mediumRelevance) {
+      if (text.includes(kw)) score += 4;
+    }
+
+    // Snow/conditions keywords - +2 each
+    const snowKeywords = ['śnieg', 'puch', 'firn', 'pokrywa', 'lawina', 'szczyt', 'grań'];
+    for (const kw of snowKeywords) {
+      if (text.includes(kw)) score += 2;
+    }
+
+    // Good sources (ski touring blogs/forums) - +8
+    const goodSources = ['skitury.pl', 'skiturowe', 'tatromaniak', 'wspinanie', 'wgory', 'gory', 'bergzeit', 'powderline'];
+    for (const src of goodSources) {
+      if (source.includes(src)) score += 8;
+    }
+
+    // Recent date mentioned - +3
+    const year = new Date().getFullYear();
+    if (text.includes(String(year))) score += 3;
+    if (text.includes(String(year - 1))) score += 1; // Last year still somewhat relevant
+
+    // Negative signals (reduce score)
+    const badKeywords = ['hotel', 'nocleg', 'rezerwacja', 'apartament', 'spa', 'basen'];
+    for (const kw of badKeywords) {
+      if (text.includes(kw)) score -= 5;
+    }
+
+    return score;
+  }
+
+  /**
    * Process search results into condition reports
+   * Results are already sorted by relevance from executeInternal
    */
   private async processResults(
     results: SearchResult[],
@@ -361,27 +484,22 @@ export class WebSearchAgent extends BaseAgent<WebSearchInput, WithConfidence<Con
       // Determine sentiment
       const sentiment = this.analyzeSentiment(result.snippet);
 
-      // If LLM is available, use it to generate better summary
+      // If LLM is available, use it to generate better summary in Polish
       let summary = result.snippet;
       let confidence = searchConfidence(result.source, reportDate, result.url);
 
-      if (context.llmConfig && result.snippet.length > 50) {
+      if (context.llmEnabled && result.snippet.length > 50) {
         try {
-          const llm = new LLMService(context.llmConfig);
+          const llm = new LLMService();
           const enhanced = await llm.prompt(
-            `Extract ski conditions from this text. Write 1 SHORT sentence (max 20 words). NO introduction. Start directly with conditions.\n\nText: "${result.title} - ${result.snippet}"`,
-            'Output format: Direct condition statement. Example: "Fresh powder above 1200m, icy trails below." Never start with "Here is" or "Summary:" or similar phrases.',
+            `Wyciągnij informacje o warunkach narciarskich z tekstu. Napisz 1 KRÓTKIE zdanie po polsku (max 20 słów). BEZ wstępu. Zacznij od warunków.\n\nTekst: "${result.title} - ${result.snippet}"`,
+            'Format: Bezpośrednia informacja o warunkach. Przykład: "Świeży puch powyżej 1200m, oblodzone szlaki niżej." Nigdy nie zaczynaj od "Oto" ani "Podsumowanie:".',
             { signal: context.signal }
           );
           if (enhanced && enhanced.length > 10) {
             // Clean up any preambles the LLM might still add
             summary = this.cleanLLMResponse(enhanced);
-            confidence = aiConfidence(
-              context.llmConfig.provider === 'ollama'
-                ? context.llmConfig.ollamaModel || 'ollama'
-                : context.llmConfig.openrouterModel || 'openrouter',
-              result.source
-            );
+            confidence = aiConfidence(llm.getModel(), result.source);
           }
         } catch (error) {
           this.warn('LLM summarization failed:', error);
@@ -444,7 +562,7 @@ export class WebSearchAgent extends BaseAgent<WebSearchInput, WithConfidence<Con
   }
 
   /**
-   * Extract conditions from text
+   * Extract conditions from text (Polish labels)
    */
   private extractConditions(text: string): string[] {
     const conditions: string[] = [];
@@ -452,38 +570,38 @@ export class WebSearchAgent extends BaseAgent<WebSearchInput, WithConfidence<Con
 
     // Snow conditions
     if (lowerText.includes('puch') || lowerText.includes('powder')) {
-      conditions.push('powder');
+      conditions.push('puch');
     }
     if (lowerText.includes('firn') || lowerText.includes('corn')) {
-      conditions.push('corn snow');
+      conditions.push('firn');
     }
     if (lowerText.includes('lód') || lowerText.includes('ice') || lowerText.includes('oblodz')) {
-      conditions.push('icy');
+      conditions.push('lód');
     }
     if (lowerText.includes('twardy') || lowerText.includes('hard')) {
-      conditions.push('hard-packed');
+      conditions.push('twardy śnieg');
     }
 
     // Weather conditions
     if (lowerText.includes('słońce') || lowerText.includes('sunny') || lowerText.includes('słonecz')) {
-      conditions.push('sunny');
+      conditions.push('słonecznie');
     }
     if (lowerText.includes('mgła') || lowerText.includes('fog')) {
-      conditions.push('fog');
+      conditions.push('mgła');
     }
     if (lowerText.includes('wiatr') || lowerText.includes('wind')) {
-      conditions.push('windy');
+      conditions.push('wiatr');
     }
     if (lowerText.includes('opady') || lowerText.includes('śnieg') || lowerText.includes('snow')) {
-      conditions.push('snowing');
+      conditions.push('opady śniegu');
     }
 
     // Visibility
     if (lowerText.includes('dobra widoczność') || lowerText.includes('good visibility')) {
-      conditions.push('good visibility');
+      conditions.push('dobra widoczność');
     }
     if (lowerText.includes('słaba widoczność') || lowerText.includes('poor visibility')) {
-      conditions.push('poor visibility');
+      conditions.push('słaba widoczność');
     }
 
     return conditions;
@@ -533,7 +651,7 @@ export class WebSearchAgent extends BaseAgent<WebSearchInput, WithConfidence<Con
       }
     }
 
-    return 'Unknown';
+    return 'Nieznana';
   }
 
   /**
