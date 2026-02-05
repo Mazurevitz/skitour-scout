@@ -330,34 +330,40 @@ export class WeatherAgent extends BaseAgent<WeatherInput, WeatherData> {
     const pairs = WeatherAgent.getElevationPairs(region);
     const results: ElevationWeather[] = [];
 
-    // Fetch all points in parallel for speed
-    const allFetches = pairs.flatMap((pair) => [
-      this.fetchPointWeather(pair.valley, `${pair.name} (dolina)`, signal),
-      this.fetchPointWeather(pair.summit, `${pair.name} (szczyt)`, signal),
-    ]);
+    this.log(`Fetching elevation weather for ${region} (${pairs.length} peaks)`);
 
-    try {
-      const allPoints = await Promise.all(allFetches);
+    // Process each pair individually for resilience
+    for (const pair of pairs) {
+      try {
+        // Fetch valley and summit in parallel
+        const [valleyResult, summitResult] = await Promise.allSettled([
+          this.fetchPointWeather(pair.valley, `${pair.name} (dolina)`, signal),
+          this.fetchPointWeather(pair.summit, `${pair.name} (szczyt)`, signal),
+        ]);
 
-      // Group into pairs
-      for (let i = 0; i < pairs.length; i++) {
-        const valley = allPoints[i * 2];
-        const summit = allPoints[i * 2 + 1];
+        // Skip if either failed
+        if (valleyResult.status !== 'fulfilled' || summitResult.status !== 'fulfilled') {
+          this.warn(`Skipping ${pair.name} - fetch failed`);
+          continue;
+        }
 
-        // Also fetch freezing level and snow for summit
-        const summitParams = new URLSearchParams({
-          latitude: pairs[i].summit.latitude.toString(),
-          longitude: pairs[i].summit.longitude.toString(),
-          hourly: 'freezing_level_height',
-          daily: 'snowfall_sum',
-          timezone: 'auto',
-          forecast_days: '1',
-        });
+        const valley = valleyResult.value;
+        const summit = summitResult.value;
 
+        // Fetch freezing level and snow (optional - don't fail if this errors)
         let freezingLevel = 1500;
         let freshSnow24h = 0;
 
         try {
+          const summitParams = new URLSearchParams({
+            latitude: pair.summit.latitude.toString(),
+            longitude: pair.summit.longitude.toString(),
+            hourly: 'freezing_level_height',
+            daily: 'snowfall_sum',
+            timezone: 'auto',
+            forecast_days: '1',
+          });
+
           const extraResponse = await fetch(`${WeatherAgent.API_BASE}?${summitParams}`, { signal });
           if (extraResponse.ok) {
             const extraData = await extraResponse.json();
@@ -365,7 +371,7 @@ export class WeatherAgent extends BaseAgent<WeatherInput, WeatherData> {
             freshSnow24h = extraData.daily?.snowfall_sum?.[0] ?? 0;
           }
         } catch {
-          // Use defaults
+          // Use defaults - this is optional data
         }
 
         results.push({
@@ -377,11 +383,14 @@ export class WeatherAgent extends BaseAgent<WeatherInput, WeatherData> {
           timestamp: new Date().toISOString(),
           source: 'Open-Meteo',
         });
+
+        this.log(`${pair.name}: ${valley.temperature}°C → ${summit.temperature}°C`);
+      } catch (error) {
+        this.warn(`Failed to fetch ${pair.name}:`, error);
       }
-    } catch (error) {
-      this.warn('Failed to fetch elevation weather:', error);
     }
 
+    this.log(`Fetched elevation weather for ${results.length}/${pairs.length} peaks`);
     return results;
   }
 }
