@@ -22,7 +22,7 @@ Last updated: 2026-02-06
   - Callbacks memoized with useCallback
 
 ### Offline Support
-- [ ] Add offline indicator UI
+- [x] Add offline indicator UI - Added offline banner with useOnlineStatus hook
 - [ ] Implement retry queue for failed operations
 - [ ] Add conflict resolution strategy for sync
 - [ ] Two-way sync (currently one-way only)
@@ -90,4 +90,5 @@ Last updated: 2026-02-06
 - **2026-02-06**: Fixed RLS policy gap - new migration prevents users from updating their own `is_admin` field
 - **2026-02-06**: Added memoization to MobileDashboard - `useMemo` for computed values, `useCallback` for handlers
 - **2026-02-06**: Added error feedback UI - error state in store, dismissible error banner in dashboard
+- **2026-02-06**: Added offline indicator - `useOnlineStatus` hook detects connectivity, shows amber banner when offline
 

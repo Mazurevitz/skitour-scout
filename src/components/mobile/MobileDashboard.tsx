@@ -14,7 +14,9 @@ import {
   Radio,
   AlertTriangle,
   X,
+  WifiOff,
 } from 'lucide-react';
+import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { useAppStore, useReportsStore, type NewReportInput } from '@/stores';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { WeatherAgent } from '@/agents';
@@ -72,6 +74,7 @@ export function MobileDashboard() {
   } = useReportsStore();
 
   const { initialize: initAuth, cleanup: cleanupAuth } = useAuthStore();
+  const isOnline = useOnlineStatus();
 
   // Memoize expensive computations
   const regionLocations = useMemo(
@@ -218,8 +221,18 @@ export function MobileDashboard() {
 
   return (
     <div className="h-full bg-gray-900 relative">
+      {/* Offline Banner */}
+      {!isOnline && (
+        <div className="fixed top-0 left-0 right-0 z-50 p-3 bg-amber-900/95 border-b border-amber-700 flex items-center gap-3">
+          <WifiOff className="w-5 h-5 text-amber-200 flex-shrink-0" />
+          <span className="text-sm text-amber-100">
+            Brak połączenia z internetem. Wyświetlane są dane z pamięci podręcznej.
+          </span>
+        </div>
+      )}
+
       {/* Error Banner */}
-      {error && (
+      {error && isOnline && (
         <div className="fixed top-0 left-0 right-0 z-50 p-3 bg-red-900/95 border-b border-red-700 flex items-center justify-between gap-3 animate-in slide-in-from-top duration-300">
           <div className="flex items-center gap-2 text-red-100">
             <AlertTriangle className="w-5 h-5 flex-shrink-0" />
