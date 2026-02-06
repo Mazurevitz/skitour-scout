@@ -8,7 +8,7 @@
  */
 
 import { create } from 'zustand';
-import { supabase, isSupabaseConfigured, getEdgeFunctionUrl, getAuthHeaders, Report } from '../lib/supabase';
+import { supabase, isSupabaseConfigured, getEdgeFunctionUrl, getAuthHeaders, Report, AdminReport } from '../lib/supabase';
 
 /**
  * Report type: Ascent or Descent
@@ -131,8 +131,25 @@ export interface AuthRequiredError {
 
 export type ReportError = RateLimitError | AuthRequiredError | { type: 'error'; message: string };
 
+/**
+ * Admin-verified report from Facebook
+ */
+export interface VerifiedReport {
+  id: string;
+  reportDate: string;
+  location: string;
+  region: string;
+  snowConditions: string | null;
+  hazards: string[];
+  safetyRating: number;
+  authorName: string | null;
+  sourceGroup: string | null;
+  createdAt: string;
+}
+
 interface ReportsState {
   reports: CommunityReport[];
+  adminReports: VerifiedReport[];
   isLoading: boolean;
   lastSync: string | null;
   error: ReportError | null;
@@ -148,6 +165,7 @@ interface ReportsState {
   getAggregatedConditions: (region: string) => LocationConditions[];
   getRecentReports: (hours?: number) => CommunityReport[];
   getUserReports: (userId: string) => CommunityReport[];
+  getAdminReportsForRegion: (region: string) => VerifiedReport[];
   clearOldReports: (daysOld?: number) => Promise<void>;
   clearError: () => void;
 }
@@ -238,6 +256,7 @@ function migrateReport(report: CommunityReport): CommunityReport {
 
 export const useReportsStore = create<ReportsState>((set, get) => ({
   reports: [],
+  adminReports: [],
   isLoading: false,
   lastSync: null,
   error: null,
@@ -291,9 +310,21 @@ export const useReportsStore = create<ReportsState>((set, get) => ({
         .order('created_at', { ascending: false })
         .limit(200);
 
+      // Fetch admin reports (verified FB reports)
+      const { data: adminReportsData, error: adminError } = await supabase
+        .from('admin_reports')
+        .select('*')
+        .is('deleted_at', null)
+        .order('report_date', { ascending: false })
+        .limit(100);
+
       if (error) {
         console.error('Supabase sync error:', error);
         return;
+      }
+
+      if (adminError) {
+        console.error('Admin reports sync error:', adminError);
       }
 
       if (supabaseReports) {
@@ -319,7 +350,25 @@ export const useReportsStore = create<ReportsState>((set, get) => ({
 
         db.close();
 
-        set({ reports: allReports, lastSync: new Date().toISOString() });
+        // Convert admin reports to VerifiedReport format
+        const verifiedReports: VerifiedReport[] = (adminReportsData || []).map((r: AdminReport) => ({
+          id: r.id,
+          reportDate: r.report_date,
+          location: r.location,
+          region: r.region,
+          snowConditions: r.snow_conditions,
+          hazards: r.hazards || [],
+          safetyRating: r.safety_rating,
+          authorName: r.author_name,
+          sourceGroup: r.source_group,
+          createdAt: r.created_at,
+        }));
+
+        set({
+          reports: allReports,
+          adminReports: verifiedReports,
+          lastSync: new Date().toISOString(),
+        });
       }
     } catch (error) {
       console.error('Failed to sync with Supabase:', error);
@@ -622,6 +671,14 @@ export const useReportsStore = create<ReportsState>((set, get) => ({
     const { reports } = get();
     const cutoff = Date.now() - hours * 60 * 60 * 1000;
     return reports.filter((r) => new Date(r.timestamp).getTime() > cutoff);
+  },
+
+  getAdminReportsForRegion: (region: string) => {
+    const { adminReports } = get();
+    return adminReports.filter((r) =>
+      r.region.toLowerCase().includes(region.toLowerCase()) ||
+      region.toLowerCase().includes(r.region.toLowerCase())
+    );
   },
 
   clearOldReports: async (daysOld = 30) => {

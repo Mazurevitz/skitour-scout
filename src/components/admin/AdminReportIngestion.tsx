@@ -1,11 +1,11 @@
 /**
  * Admin Report Ingestion Component
  *
- * Semi-automated flow for parsing Facebook posts into structured reports:
- * 1. Paste raw text
- * 2. AI parses it (Claude 3.5 Sonnet)
- * 3. Review and edit
- * 4. Save to Supabase
+ * Bulk import flow for parsing Facebook posts into structured reports:
+ * 1. Paste raw text (multiple comments)
+ * 2. AI extracts multiple reports (ignores junk)
+ * 3. Review, edit, remove individual reports
+ * 4. Save selected reports to Supabase
  */
 
 import { useState } from 'react';
@@ -18,11 +18,12 @@ import {
   Save,
   RotateCcw,
   FileText,
-  MapPin,
   Calendar,
-  Snowflake,
   Shield,
   User,
+  Trash2,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { supabase, getEdgeFunctionUrl } from '@/lib/supabase';
 
@@ -34,8 +35,14 @@ interface ParsedReport {
   region: string;
   snow_conditions: string;
   hazards: string[];
-  is_safe: boolean;
+  safety_rating: number;
   author_name: string | null;
+}
+
+interface ReportWithMeta extends ParsedReport {
+  id: string;
+  expanded: boolean;
+  source_group: string | null;
 }
 
 interface Toast {
@@ -44,26 +51,21 @@ interface Toast {
 }
 
 const REGIONS = ['Beskid Śląski', 'Beskid Żywiecki', 'Tatry'];
-const COMMON_HAZARDS = ['kamienie', 'lód', 'krzaki', 'wiatr', 'mgła', 'lawiny', 'oblodzenie', 'zaspy'];
+const COMMON_HAZARDS = ['kamienie', 'lód', 'krzaki', 'wiatr', 'mgła', 'lawiny', 'przenoski', 'oblodzenie'];
 
 export function AdminReportIngestion() {
   const [phase, setPhase] = useState<Phase>('input');
   const [rawText, setRawText] = useState('');
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rawResponse, setRawResponse] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
+  const [sourceGroup, setSourceGroup] = useState('');
+  const [savedCount, setSavedCount] = useState(0);
 
-  // Editable form state
-  const [formData, setFormData] = useState<ParsedReport>({
-    report_date: new Date().toISOString().split('T')[0],
-    location: '',
-    region: 'Beskid Śląski',
-    snow_conditions: '',
-    hazards: [],
-    is_safe: true,
-    author_name: null,
-  });
+  // Multiple reports state
+  const [reports, setReports] = useState<ReportWithMeta[]>([]);
 
   const showToast = (type: 'success' | 'error', message: string) => {
     setToast({ type, message });
@@ -85,58 +87,55 @@ export function AdminReportIngestion() {
         throw new Error('Edge Function URL not configured');
       }
 
-      // Get session and verify user is logged in
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-
-      if (sessionError) {
-        throw new Error(`Session error: ${sessionError.message}`);
-      }
-
+      const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) {
-        throw new Error('Nie jesteś zalogowany. Zaloguj się ponownie.');
+        throw new Error('Musisz być zalogowany jako administrator');
       }
-
-      const headers = {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${session.access_token}`,
-      };
-
-      console.log('Calling parse-report with auth token:', session.access_token.substring(0, 20) + '...');
 
       const response = await fetch(edgeFunctionUrl, {
         method: 'POST',
-        headers,
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`,
+        },
         body: JSON.stringify({ raw_text: rawText }),
       });
 
-      const data = await response.json();
+      const responseText = await response.text();
+      console.log('Response:', responseText);
 
-      if (!response.ok) {
-        // Build detailed error message
-        let errorMsg = data.error || 'Failed to parse report';
-        if (data.details) {
-          errorMsg += `\n\nSzczegóły: ${data.details}`;
-        }
-        if (data.raw_response) {
-          errorMsg += `\n\nOdpowiedź AI: ${data.raw_response}`;
-        }
-        throw new Error(errorMsg);
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch {
+        throw new Error(`Invalid JSON response: ${responseText}`);
       }
 
-      if (data.parsed) {
-        setFormData({
-          ...data.parsed,
-          hazards: data.parsed.hazards || [],
-          author_name: data.parsed.author_name || null,
-        });
+      if (!response.ok) {
+        throw new Error(`[${response.status}] ${data.error || 'Failed to parse'}`);
+      }
+
+      if (data.reports && Array.isArray(data.reports)) {
+        if (data.reports.length === 0) {
+          setError('AI nie znalazło żadnych raportów w tekście. Spróbuj wkleić inne komentarze.');
+          return;
+        }
+
+        // Add metadata to each report
+        const reportsWithMeta: ReportWithMeta[] = data.reports.map((r: ParsedReport, i: number) => ({
+          ...r,
+          id: `report-${Date.now()}-${i}`,
+          expanded: i === 0, // First one expanded by default
+          hazards: r.hazards || [],
+          safety_rating: r.safety_rating || 3,
+          source_group: null,
+        }));
+
+        setReports(reportsWithMeta);
         setRawResponse(data.raw_response);
         setPhase('review');
       } else {
-        let errorMsg = 'No parsed data returned';
-        if (data.raw_response) {
-          errorMsg += `\n\nOdpowiedź AI: ${data.raw_response}`;
-        }
-        throw new Error(errorMsg);
+        throw new Error('Nieprawidłowa odpowiedź z AI');
       }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
@@ -147,42 +146,46 @@ export function AdminReportIngestion() {
     }
   };
 
-  const handleSave = async () => {
-    setLoading(true);
+  const handleSaveAll = async () => {
+    if (reports.length === 0) return;
+
+    setSaving(true);
     setError(null);
 
     try {
       const { data: { user } } = await supabase.auth.getUser();
 
-      const insertData = {
-        report_date: formData.report_date,
-        location: formData.location,
-        region: formData.region,
-        snow_conditions: formData.snow_conditions || null,
-        hazards: formData.hazards,
-        is_safe: formData.is_safe,
+      const insertData = reports.map(r => ({
+        report_date: r.report_date,
+        location: r.location,
+        region: r.region,
+        snow_conditions: r.snow_conditions || null,
+        hazards: r.hazards,
+        safety_rating: r.safety_rating,
         raw_source: rawText,
-        author_name: formData.author_name,
+        author_name: r.author_name,
+        source_group: sourceGroup || null,
         source_type: 'facebook',
         ingested_by: user?.id,
-      };
+      }));
 
       const { error: insertError } = await supabase
         .from('admin_reports')
-        .insert(insertData as never);
+        .insert(insertData as never[]);
 
       if (insertError) {
         throw insertError;
       }
 
-      showToast('success', 'Raport zapisany pomyślnie!');
+      setSavedCount(reports.length);
+      showToast('success', `Zapisano ${reports.length} raportów!`);
       setPhase('success');
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to save';
       setError(message);
       showToast('error', message);
     } finally {
-      setLoading(false);
+      setSaving(false);
     }
   };
 
@@ -191,65 +194,64 @@ export function AdminReportIngestion() {
     setRawText('');
     setRawResponse(null);
     setError(null);
-    setFormData({
-      report_date: new Date().toISOString().split('T')[0],
-      location: '',
-      region: 'Beskid Śląski',
-      snow_conditions: '',
-      hazards: [],
-      is_safe: true,
-      author_name: null,
-    });
+    setReports([]);
+    setSourceGroup('');
+    setSavedCount(0);
   };
 
-  const toggleHazard = (hazard: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      hazards: prev.hazards.includes(hazard)
-        ? prev.hazards.filter((h) => h !== hazard)
-        : [...prev.hazards, hazard],
+  const updateReport = (id: string, updates: Partial<ReportWithMeta>) => {
+    setReports(prev => prev.map(r => r.id === id ? { ...r, ...updates } : r));
+  };
+
+  const removeReport = (id: string) => {
+    setReports(prev => prev.filter(r => r.id !== id));
+  };
+
+  const toggleExpanded = (id: string) => {
+    setReports(prev => prev.map(r => r.id === id ? { ...r, expanded: !r.expanded } : r));
+  };
+
+  const toggleHazard = (id: string, hazard: string) => {
+    setReports(prev => prev.map(r => {
+      if (r.id !== id) return r;
+      const hazards = r.hazards.includes(hazard)
+        ? r.hazards.filter(h => h !== hazard)
+        : [...r.hazards, hazard];
+      return { ...r, hazards };
     }));
   };
 
+  const getSafetyColor = (rating: number) => {
+    if (rating <= 2) return 'bg-red-600';
+    if (rating === 3) return 'bg-yellow-600';
+    return 'bg-green-600';
+  };
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Toast notification */}
       {toast && (
         <div
           className={`fixed top-4 right-4 z-50 flex items-center gap-2 px-4 py-3 rounded-lg shadow-lg ${
-            toast.type === 'success'
-              ? 'bg-green-600 text-white'
-              : 'bg-red-600 text-white'
+            toast.type === 'success' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
           }`}
         >
-          {toast.type === 'success' ? (
-            <Check className="w-5 h-5" />
-          ) : (
-            <AlertTriangle className="w-5 h-5" />
-          )}
+          {toast.type === 'success' ? <Check className="w-5 h-5" /> : <AlertTriangle className="w-5 h-5" />}
           <span>{toast.message}</span>
-          <button onClick={() => setToast(null)} className="ml-2">
-            <X className="w-4 h-4" />
-          </button>
+          <button onClick={() => setToast(null)} className="ml-2"><X className="w-4 h-4" /></button>
         </div>
       )}
 
-      {/* Phase indicator */}
+      {/* Header */}
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-semibold text-white flex items-center gap-2">
           <FileText className="w-5 h-5 text-blue-400" />
-          Import raportu z Facebooka
+          Import raportów z FB
         </h2>
         <div className="flex items-center gap-2 text-sm">
-          <span className={`px-2 py-1 rounded ${phase === 'input' ? 'bg-blue-600' : 'bg-gray-700'}`}>
-            1. Wklej
-          </span>
-          <span className={`px-2 py-1 rounded ${phase === 'review' ? 'bg-blue-600' : 'bg-gray-700'}`}>
-            2. Sprawdź
-          </span>
-          <span className={`px-2 py-1 rounded ${phase === 'success' ? 'bg-green-600' : 'bg-gray-700'}`}>
-            3. Zapisz
-          </span>
+          <span className={`px-2 py-1 rounded ${phase === 'input' ? 'bg-blue-600' : 'bg-gray-700'}`}>1. Wklej</span>
+          <span className={`px-2 py-1 rounded ${phase === 'review' ? 'bg-blue-600' : 'bg-gray-700'}`}>2. Sprawdź</span>
+          <span className={`px-2 py-1 rounded ${phase === 'success' ? 'bg-green-600' : 'bg-gray-700'}`}>3. Zapisz</span>
         </div>
       </div>
 
@@ -258,13 +260,13 @@ export function AdminReportIngestion() {
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-2">
-              Wklej tekst posta z Facebooka
+              Wklej komentarze z Facebooka (można wiele naraz)
             </label>
             <textarea
               value={rawText}
               onChange={(e) => setRawText(e.target.value)}
-              placeholder="Skopiuj i wklej cały post z Facebooka (włącznie z datą, autorem, treścią)..."
-              className="w-full h-64 px-4 py-3 bg-gray-800 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 resize-none"
+              placeholder="Skopiuj i wklej komentarze z grupy FB. AI wyodrębni raporty warunków, ignorując pytania i żarty..."
+              className="w-full h-64 px-4 py-3 bg-gray-800 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 resize-none text-sm"
             />
           </div>
 
@@ -283,15 +285,9 @@ export function AdminReportIngestion() {
             className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 rounded-xl font-medium transition-colors"
           >
             {loading ? (
-              <>
-                <Loader2 className="w-5 h-5 animate-spin" />
-                Analizuję z AI...
-              </>
+              <><Loader2 className="w-5 h-5 animate-spin" />Analizuję z AI...</>
             ) : (
-              <>
-                <Sparkles className="w-5 h-5" />
-                Przetwórz z AI
-              </>
+              <><Sparkles className="w-5 h-5" />Wyodrębnij raporty</>
             )}
           </button>
         </div>
@@ -300,171 +296,169 @@ export function AdminReportIngestion() {
       {/* Phase 2: Review */}
       {phase === 'review' && (
         <div className="space-y-4">
-          {/* Editable form */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Date */}
-            <div>
-              <label className="flex items-center gap-2 text-sm font-medium text-gray-300 mb-2">
-                <Calendar className="w-4 h-4" />
-                Data raportu
-              </label>
-              <input
-                type="date"
-                value={formData.report_date}
-                onChange={(e) => setFormData({ ...formData, report_date: e.target.value })}
-                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
-              />
-            </div>
-
-            {/* Location */}
-            <div>
-              <label className="flex items-center gap-2 text-sm font-medium text-gray-300 mb-2">
-                <MapPin className="w-4 h-4" />
-                Lokalizacja
-              </label>
-              <input
-                type="text"
-                value={formData.location}
-                onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-                placeholder="np. Skrzyczne, Pilsko"
-                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
-              />
-            </div>
-
-            {/* Region */}
-            <div>
-              <label className="flex items-center gap-2 text-sm font-medium text-gray-300 mb-2">
-                <MapPin className="w-4 h-4" />
-                Region
-              </label>
-              <select
-                value={formData.region}
-                onChange={(e) => setFormData({ ...formData, region: e.target.value })}
-                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
-              >
-                {REGIONS.map((r) => (
-                  <option key={r} value={r}>{r}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Author */}
-            <div>
-              <label className="flex items-center gap-2 text-sm font-medium text-gray-300 mb-2">
-                <User className="w-4 h-4" />
-                Autor
-              </label>
-              <input
-                type="text"
-                value={formData.author_name || ''}
-                onChange={(e) => setFormData({ ...formData, author_name: e.target.value || null })}
-                placeholder="Imię i nazwisko autora"
-                className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500"
-              />
-            </div>
-          </div>
-
-          {/* Snow conditions */}
-          <div>
-            <label className="flex items-center gap-2 text-sm font-medium text-gray-300 mb-2">
-              <Snowflake className="w-4 h-4" />
-              Warunki śniegowe
-            </label>
-            <textarea
-              value={formData.snow_conditions}
-              onChange={(e) => setFormData({ ...formData, snow_conditions: e.target.value })}
-              placeholder="Opis warunków śniegowych..."
-              rows={3}
-              className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:border-blue-500 resize-none"
+          {/* Source group - applies to all */}
+          <div className="flex items-center gap-3 p-3 bg-gray-800/50 rounded-lg">
+            <FileText className="w-4 h-4 text-gray-400" />
+            <input
+              type="text"
+              value={sourceGroup}
+              onChange={(e) => setSourceGroup(e.target.value)}
+              placeholder="Grupa FB (opcjonalnie, dla wszystkich)"
+              className="flex-1 px-3 py-1.5 bg-gray-700 border border-gray-600 rounded text-white text-sm focus:outline-none focus:border-blue-500"
             />
+            <span className="text-sm text-gray-400">{reports.length} raportów</span>
           </div>
 
-          {/* Hazards */}
-          <div>
-            <label className="flex items-center gap-2 text-sm font-medium text-gray-300 mb-2">
-              <AlertTriangle className="w-4 h-4" />
-              Zagrożenia
-            </label>
-            <div className="flex flex-wrap gap-2">
-              {COMMON_HAZARDS.map((hazard) => (
-                <button
-                  key={hazard}
-                  onClick={() => toggleHazard(hazard)}
-                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                    formData.hazards.includes(hazard)
-                      ? 'bg-amber-600 text-white'
-                      : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                  }`}
+          {/* Report cards */}
+          <div className="space-y-3 max-h-[50vh] overflow-y-auto">
+            {reports.map((report) => (
+              <div key={report.id} className="bg-gray-800 rounded-lg border border-gray-700 overflow-hidden">
+                {/* Card header - always visible */}
+                <div
+                  className="flex items-center gap-3 p-3 cursor-pointer hover:bg-gray-750"
+                  onClick={() => toggleExpanded(report.id)}
                 >
-                  {hazard}
-                </button>
-              ))}
-            </div>
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-bold text-sm ${getSafetyColor(report.safety_rating)}`}>
+                    {report.safety_rating}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-white">{report.location}</span>
+                      <span className="text-gray-500 text-sm">({report.region})</span>
+                    </div>
+                    <div className="text-xs text-gray-400 flex items-center gap-2">
+                      <Calendar className="w-3 h-3" />
+                      {report.report_date}
+                      {report.author_name && (
+                        <><User className="w-3 h-3 ml-2" />{report.author_name}</>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); removeReport(report.id); }}
+                    className="p-1.5 text-gray-500 hover:text-red-400 hover:bg-gray-700 rounded"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                  {report.expanded ? <ChevronUp className="w-4 h-4 text-gray-500" /> : <ChevronDown className="w-4 h-4 text-gray-500" />}
+                </div>
+
+                {/* Expanded content */}
+                {report.expanded && (
+                  <div className="p-3 pt-0 space-y-3 border-t border-gray-700">
+                    {/* Basic fields */}
+                    <div className="grid grid-cols-2 gap-2">
+                      <input
+                        type="date"
+                        value={report.report_date}
+                        onChange={(e) => updateReport(report.id, { report_date: e.target.value })}
+                        className="px-2 py-1.5 bg-gray-700 border border-gray-600 rounded text-white text-sm"
+                      />
+                      <input
+                        type="text"
+                        value={report.location}
+                        onChange={(e) => updateReport(report.id, { location: e.target.value })}
+                        placeholder="Lokalizacja"
+                        className="px-2 py-1.5 bg-gray-700 border border-gray-600 rounded text-white text-sm"
+                      />
+                      <select
+                        value={report.region}
+                        onChange={(e) => updateReport(report.id, { region: e.target.value })}
+                        className="px-2 py-1.5 bg-gray-700 border border-gray-600 rounded text-white text-sm"
+                      >
+                        {REGIONS.map(r => <option key={r} value={r}>{r}</option>)}
+                      </select>
+                      <input
+                        type="text"
+                        value={report.author_name || ''}
+                        onChange={(e) => updateReport(report.id, { author_name: e.target.value || null })}
+                        placeholder="Autor (opcjonalnie)"
+                        className="px-2 py-1.5 bg-gray-700 border border-gray-600 rounded text-white text-sm"
+                      />
+                    </div>
+
+                    {/* Snow conditions */}
+                    <textarea
+                      value={report.snow_conditions}
+                      onChange={(e) => updateReport(report.id, { snow_conditions: e.target.value })}
+                      placeholder="Warunki śniegowe..."
+                      rows={2}
+                      className="w-full px-2 py-1.5 bg-gray-700 border border-gray-600 rounded text-white text-sm resize-none"
+                    />
+
+                    {/* Hazards */}
+                    <div className="flex flex-wrap gap-1">
+                      {COMMON_HAZARDS.map(hazard => (
+                        <button
+                          key={hazard}
+                          onClick={() => toggleHazard(report.id, hazard)}
+                          className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                            report.hazards.includes(hazard)
+                              ? 'bg-amber-600 text-white'
+                              : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
+                          }`}
+                        >
+                          {hazard}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Safety rating */}
+                    <div className="flex items-center gap-2">
+                      <Shield className="w-4 h-4 text-gray-400" />
+                      <div className="flex gap-1">
+                        {[1, 2, 3, 4, 5].map(rating => (
+                          <button
+                            key={rating}
+                            onClick={() => updateReport(report.id, { safety_rating: rating })}
+                            className={`w-8 h-8 rounded font-medium text-sm transition-colors ${
+                              report.safety_rating === rating
+                                ? getSafetyColor(rating) + ' text-white'
+                                : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
+                            }`}
+                          >
+                            {rating}
+                          </button>
+                        ))}
+                      </div>
+                      <span className="text-xs text-gray-500 ml-2">1=niebezpieczne, 5=bezpieczne</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
 
-          {/* Is safe toggle */}
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setFormData({ ...formData, is_safe: !formData.is_safe })}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-colors ${
-                formData.is_safe
-                  ? 'bg-green-600 text-white'
-                  : 'bg-red-600 text-white'
-              }`}
-            >
-              <Shield className="w-4 h-4" />
-              {formData.is_safe ? 'Bezpieczne' : 'Niebezpieczne'}
-            </button>
-            <span className="text-sm text-gray-400">
-              Kliknij, aby zmienić
-            </span>
-          </div>
-
-          {/* Debug: Raw AI response */}
+          {/* Debug */}
           {rawResponse && (
             <details className="bg-gray-800/50 rounded-lg p-3">
-              <summary className="text-sm text-gray-400 cursor-pointer">
-                Odpowiedź AI (debug)
-              </summary>
-              <pre className="mt-2 text-xs text-gray-500 overflow-x-auto whitespace-pre-wrap">
-                {rawResponse}
-              </pre>
+              <summary className="text-sm text-gray-400 cursor-pointer">Odpowiedź AI (debug)</summary>
+              <pre className="mt-2 text-xs text-gray-500 overflow-x-auto whitespace-pre-wrap">{rawResponse}</pre>
             </details>
           )}
 
           {error && (
-            <div className="p-3 bg-red-900/30 border border-red-800 rounded-lg text-red-400">
-              <div className="flex items-start gap-2">
-                <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-                <pre className="text-sm whitespace-pre-wrap break-words flex-1 font-sans">{error}</pre>
-              </div>
-            </div>
+            <div className="p-3 bg-red-900/30 border border-red-800 rounded-lg text-red-400 text-sm">{error}</div>
           )}
 
           {/* Actions */}
           <div className="flex gap-3">
             <button
               onClick={handleReset}
-              className="flex items-center gap-2 px-4 py-3 bg-gray-700 hover:bg-gray-600 rounded-xl font-medium transition-colors"
+              className="flex items-center gap-2 px-4 py-2.5 bg-gray-700 hover:bg-gray-600 rounded-xl font-medium transition-colors"
             >
-              <RotateCcw className="w-5 h-5" />
-              Zacznij od nowa
+              <RotateCcw className="w-4 h-4" />
+              Od nowa
             </button>
             <button
-              onClick={handleSave}
-              disabled={loading || !formData.location || !formData.region}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-green-600 hover:bg-green-500 disabled:bg-gray-700 disabled:text-gray-500 rounded-xl font-medium transition-colors"
+              onClick={handleSaveAll}
+              disabled={saving || reports.length === 0}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-green-600 hover:bg-green-500 disabled:bg-gray-700 disabled:text-gray-500 rounded-xl font-medium transition-colors"
             >
-              {loading ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  Zapisuję...
-                </>
+              {saving ? (
+                <><Loader2 className="w-4 h-4 animate-spin" />Zapisuję...</>
               ) : (
-                <>
-                  <Save className="w-5 h-5" />
-                  Zatwierdź i zapisz
-                </>
+                <><Save className="w-4 h-4" />Zapisz {reports.length} raportów</>
               )}
             </button>
           </div>
@@ -477,16 +471,14 @@ export function AdminReportIngestion() {
           <div className="w-16 h-16 bg-green-600 rounded-full flex items-center justify-center mx-auto mb-4">
             <Check className="w-8 h-8 text-white" />
           </div>
-          <h3 className="text-xl font-semibold text-white mb-2">Raport zapisany!</h3>
-          <p className="text-gray-400 mb-6">
-            Raport z {formData.location} został dodany do bazy danych.
-          </p>
+          <h3 className="text-xl font-semibold text-white mb-2">Zapisano {savedCount} raportów!</h3>
+          <p className="text-gray-400 mb-6">Raporty zostały dodane do bazy danych.</p>
           <button
             onClick={handleReset}
             className="flex items-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-500 rounded-xl font-medium transition-colors mx-auto"
           >
             <FileText className="w-5 h-5" />
-            Dodaj kolejny raport
+            Importuj kolejne
           </button>
         </div>
       )}

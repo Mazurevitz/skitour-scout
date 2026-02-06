@@ -1,9 +1,10 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts';
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.39.3';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, Authorization',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
 interface ParsedReport {
@@ -12,8 +13,8 @@ interface ParsedReport {
   region: string;
   snow_conditions: string;
   hazards: string[];
-  is_safe: boolean;
-  author_name: string;
+  safety_rating: number;
+  author_name: string | null;
 }
 
 serve(async (req) => {
@@ -23,37 +24,42 @@ serve(async (req) => {
   }
 
   try {
-    // Verify admin authorization
-    const authHeader = req.headers.get('Authorization');
+    // === AUTH: Verify user is admin ===
+    const authHeader = req.headers.get('authorization');
     if (!authHeader) {
       return new Response(
-        JSON.stringify({ error: 'Unauthorized' }),
+        JSON.stringify({ error: 'Missing authorization header' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-    // Verify user is admin
+    // Extract token from "Bearer <token>"
     const token = authHeader.replace('Bearer ', '');
-    const { data: { user }, error: authError } = await supabase.auth.getUser(token);
 
-    if (authError || !user) {
+    // Create Supabase client with service role for admin operations
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+
+    const supabase = createClient(supabaseUrl, serviceRoleKey);
+
+    // Verify token and get user
+    const { data: { user }, error: userError } = await supabase.auth.getUser(token);
+
+    if (userError || !user) {
       return new Response(
-        JSON.stringify({ error: 'Invalid session' }),
+        JSON.stringify({ error: 'Invalid token', details: userError?.message }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    const { data: profile } = await supabase
+    // Check if user is admin
+    const { data: profile, error: profileError } = await supabase
       .from('profiles')
       .select('is_admin')
       .eq('id', user.id)
       .single();
 
-    if (!profile?.is_admin) {
+    if (profileError || !profile?.is_admin) {
       return new Response(
         JSON.stringify({ error: 'Admin access required' }),
         { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -84,37 +90,28 @@ serve(async (req) => {
     const currentDate = today.toISOString().split('T')[0];
 
     // System prompt for parsing
-    const systemPrompt = `You are a mountain safety expert specializing in ski touring in Polish mountains (Beskidy, Tatry).
-Extract structured ski-touring data from messy Polish Facebook posts.
+    const systemPrompt = `You are a JSON extraction API. Extract ski touring condition reports from Polish Facebook posts/comments.
 
-IMPORTANT RULES:
-1. Convert relative dates to ISO format (YYYY-MM-DD) based on today's date: ${currentDate}
-   - "wczoraj" = yesterday
-   - "przedwczoraj" = day before yesterday
-   - "3 dni temu" = 3 days ago
-   - "w sobotę" = last Saturday (calculate from today)
-   - If no date mentioned, use today's date
-2. Clean up noise like "Facebook Facebook", "Zobacz więcej", repeated text
-3. Identify the specific location (peak, trail, area) - common locations:
-   - Beskid Śląski: Skrzyczne, Barania Góra, Klimczok, Błatnia, Stożek, Czantoria
-   - Beskid Żywiecki: Pilsko, Babia Góra, Romanka, Lipowska, Rysianka
-   - Tatry: Kasprowy Wierch, Kondratowa, Gąsienicowa, etc.
-4. Determine region from location
-5. Extract snow conditions (quality, depth, coverage)
-6. List hazards as array: kamienie (rocks), lód (ice), krzaki (bushes), wiatr (wind), mgła (fog), lawiny (avalanches)
-7. Determine is_safe: false if serious hazards mentioned (avalanche risk, very poor visibility, dangerous conditions)
-8. Extract author name if visible
+TODAY'S DATE: ${currentDate}
 
-Return ONLY a valid JSON object with this exact structure:
-{
-  "report_date": "YYYY-MM-DD",
-  "location": "string",
-  "region": "string (Beskid Śląski | Beskid Żywiecki | Tatry)",
-  "snow_conditions": "string description",
-  "hazards": ["string array"],
-  "is_safe": boolean,
-  "author_name": "string or null"
-}`;
+EXTRACTION RULES:
+- Extract MULTIPLE reports if the text contains several different condition reports
+- SKIP: questions, jokes, outdated reports (author says "nieaktualne"), off-topic comments
+- Relative dates → ISO format: "wczoraj"=yesterday, "3 dni temu"=3 days ago, "w sobotę"=last Saturday, "we wtorek"=last Tuesday
+- If no date mentioned: use today
+- Regions: "Beskid Śląski" (Skrzyczne, Barania Góra, Klimczok, Błatnia), "Beskid Żywiecki" (Pilsko, Babia Góra, Romanka, Rycerzowa, Lipowska), "Tatry" (Kasprowy, Kondratowa, Gąsienicowa)
+- Hazards: kamienie, lód, krzaki, wiatr, mgła, lawiny, przenoski
+- safety_rating: 1-5 (1=bardzo niebezpieczne, 3=umiarkowane, 5=bardzo bezpieczne)
+- snow_conditions: MUST be in Polish, summarize the actual conditions described
+- author_name: extract if clearly stated (e.g. "Mateusz Bujniewicz")
+- Merge comments about the same location/date from same author into one report
+
+OUTPUT FORMAT - RESPOND WITH ONLY THIS JSON ARRAY:
+{"reports":[{"report_date":"YYYY-MM-DD","location":"string","region":"string","snow_conditions":"opis po polsku","hazards":[],"safety_rating":3,"author_name":"string or null"}]}
+
+If no valid reports found, return: {"reports":[]}
+
+CRITICAL: Output raw JSON only. No markdown. No explanations.`;
 
     // Call OpenRouter API (Claude 3.5 Sonnet)
     const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -160,41 +157,65 @@ Return ONLY a valid JSON object with this exact structure:
       );
     }
 
-    // Extract JSON from response (handle markdown code blocks)
+    // Extract JSON from response
     let jsonStr = content;
-    const jsonMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (jsonMatch) {
-      jsonStr = jsonMatch[1];
+
+    // Handle markdown code blocks
+    const codeBlockMatch = content.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (codeBlockMatch) {
+      jsonStr = codeBlockMatch[1];
+    } else {
+      // Extract JSON object by finding matching braces
+      const jsonStart = content.indexOf('{');
+      if (jsonStart !== -1) {
+        let braceCount = 0;
+        let jsonEnd = jsonStart;
+        for (let i = jsonStart; i < content.length; i++) {
+          if (content[i] === '{') braceCount++;
+          if (content[i] === '}') braceCount--;
+          if (braceCount === 0) {
+            jsonEnd = i + 1;
+            break;
+          }
+        }
+        jsonStr = content.slice(jsonStart, jsonEnd);
+      }
     }
 
-    let parsed: ParsedReport;
+    let parsed: { reports: ParsedReport[] };
     try {
       parsed = JSON.parse(jsonStr.trim());
     } catch (e) {
       return new Response(
         JSON.stringify({
           error: 'Failed to parse AI response as JSON',
-          raw_response: content
+          raw_response: content,
+          extracted: jsonStr
         }),
         { status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    // Validate required fields
-    if (!parsed.report_date || !parsed.location || !parsed.region) {
+    // Validate structure
+    if (!parsed.reports || !Array.isArray(parsed.reports)) {
       return new Response(
         JSON.stringify({
-          error: 'Missing required fields in parsed data',
+          error: 'Invalid response structure - expected {reports: [...]}',
           parsed
         }),
         { status: 422, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
+    // Filter out invalid reports
+    const validReports = parsed.reports.filter(
+      r => r.report_date && r.location && r.region
+    );
+
     return new Response(
       JSON.stringify({
         success: true,
-        parsed,
+        reports: validReports,
         raw_response: content,
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

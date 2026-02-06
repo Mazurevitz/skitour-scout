@@ -64,12 +64,14 @@ export function MobileDashboard() {
     initialize: initReports,
     addReport,
     getRecentReports,
+    getAdminReportsForRegion,
   } = useReportsStore();
 
   const { initialize: initAuth } = useAuthStore();
 
   const regionLocations = WeatherAgent.getLocationsByRegion(config.region);
   const locationNames = Object.keys(regionLocations);
+  const verifiedReports = getAdminReportsForRegion(config.region);
 
   // Initialize stores
   useEffect(() => {
@@ -318,6 +320,7 @@ export function MobileDashboard() {
                 </h3>
                 <IntelFeed
                   webReports={webReports}
+                  verifiedReports={verifiedReports}
                   locations={locationNames}
                   searchingWeb={searchingWeb}
                   searchStatus={searchStatus}

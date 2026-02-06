@@ -102,9 +102,10 @@ export interface Database {
           region: string;
           snow_conditions: string | null;
           hazards: string[];
-          is_safe: boolean;
+          safety_rating: number;
           raw_source: string | null;
           author_name: string | null;
+          source_group: string | null;
           source_type: string;
           ingested_by: string | null;
           deleted_at: string | null;
@@ -117,9 +118,10 @@ export interface Database {
           region: string;
           snow_conditions?: string | null;
           hazards?: string[];
-          is_safe?: boolean;
+          safety_rating?: number;
           raw_source?: string | null;
           author_name?: string | null;
+          source_group?: string | null;
           source_type?: string;
           ingested_by?: string | null;
         };

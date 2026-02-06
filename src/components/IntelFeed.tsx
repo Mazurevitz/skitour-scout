@@ -5,7 +5,7 @@
  */
 
 import { useState } from 'react';
-import { formatDistanceToNow } from 'date-fns';
+import { formatDistanceToNow, format } from 'date-fns';
 import { pl } from 'date-fns/locale';
 import {
   Search,
@@ -17,10 +17,14 @@ import {
   Minus,
   AlertTriangle,
   Bot,
+  ShieldCheck,
+  MapPin,
+  User,
 } from 'lucide-react';
 import type { ConditionReport } from '@/agents';
 import { ConfidenceBadge, ConfidenceLegend } from './ConfidenceBadge';
 import { t } from '@/lib/translations';
+import type { VerifiedReport } from '@/stores/useReportsStore';
 
 interface SearchStatus {
   status: 'idle' | 'success' | 'error' | 'no_results';
@@ -31,6 +35,8 @@ interface SearchStatus {
 interface IntelFeedProps {
   /** Web search results */
   webReports: ConditionReport[];
+  /** Verified reports from admin (Facebook imports) */
+  verifiedReports?: VerifiedReport[];
   /** Available locations for the current region */
   locations: string[];
   /** Loading state */
@@ -57,6 +63,7 @@ const sentimentColors = {
 
 export function IntelFeed({
   webReports,
+  verifiedReports = [],
   locations,
   loading,
   searchingWeb,
@@ -154,6 +161,15 @@ export function IntelFeed({
         <ConfidenceLegend />
       )}
 
+      {/* Verified reports (from admin FB imports) */}
+      {verifiedReports.length > 0 && (
+        <div className="space-y-3">
+          {verifiedReports.map((report) => (
+            <VerifiedReportCard key={report.id} report={report} />
+          ))}
+        </div>
+      )}
+
       {/* Web search results */}
       {webReports.length > 0 && (
         <div className="space-y-3">
@@ -164,13 +180,83 @@ export function IntelFeed({
       )}
 
       {/* Empty state */}
-      {webReports.length === 0 && (
+      {webReports.length === 0 && verifiedReports.length === 0 && (
         <div className="text-center py-8 text-gray-500">
           <Search size={24} className="mx-auto mb-2 opacity-50" />
           <p className="text-sm">{t.intel.noReportsYet}</p>
           <p className="text-xs">{t.intel.clickSearch}</p>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Verified report card (from admin FB imports)
+ */
+function VerifiedReportCard({ report }: { report: VerifiedReport }) {
+  const safetyColors = [
+    'bg-red-600', // 1
+    'bg-orange-600', // 2
+    'bg-yellow-600', // 3
+    'bg-lime-600', // 4
+    'bg-green-600', // 5
+  ];
+  const safetyColor = safetyColors[(report.safetyRating || 3) - 1];
+
+  return (
+    <div className="bg-mountain-dark rounded-lg p-4 border-l-4 border-l-green-600">
+      {/* Verified badge */}
+      <div className="flex items-center gap-1.5 mb-2">
+        <ShieldCheck className="w-3.5 h-3.5 text-green-500" />
+        <span className="text-xs text-green-500">Zweryfikowane</span>
+        {report.sourceGroup && (
+          <span className="text-xs text-gray-500">• {report.sourceGroup}</span>
+        )}
+      </div>
+
+      {/* Header with location and safety */}
+      <div className="flex items-start justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <MapPin size={14} className="text-green-400" />
+          <span className="text-sm font-medium text-white">{report.location}</span>
+        </div>
+        <div className={`px-2 py-0.5 rounded text-xs font-medium text-white ${safetyColor}`}>
+          {report.safetyRating}/5
+        </div>
+      </div>
+
+      {/* Snow conditions */}
+      {report.snowConditions && (
+        <p className="text-sm text-gray-300 mb-2 selectable">{report.snowConditions}</p>
+      )}
+
+      {/* Hazards tags */}
+      {report.hazards.length > 0 && (
+        <div className="flex flex-wrap gap-1 mb-2">
+          {report.hazards.map((hazard, i) => (
+            <span
+              key={i}
+              className="px-2 py-0.5 bg-amber-900/30 text-amber-400 rounded text-xs"
+            >
+              {hazard}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Footer */}
+      <div className="flex items-center justify-between text-xs text-gray-500">
+        <div className="flex items-center gap-2">
+          {report.authorName && (
+            <>
+              <User size={12} />
+              <span>{report.authorName}</span>
+            </>
+          )}
+        </div>
+        <span>{format(new Date(report.reportDate), 'd MMM yyyy', { locale: pl })}</span>
+      </div>
     </div>
   );
 }
