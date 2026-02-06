@@ -5,18 +5,19 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { X, Shield, Loader2, AlertCircle, Check, Trash2, Settings, Users } from 'lucide-react';
+import { X, Shield, Loader2, AlertCircle, Check, Trash2, Settings, Users, FileText } from 'lucide-react';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { useReportsStore, type CommunityReport } from '@/stores/useReportsStore';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { AVAILABLE_MODELS } from '@/services/llm';
 import { format } from 'date-fns';
+import { AdminReportIngestion } from './AdminReportIngestion';
 
 interface AdminSettingsProps {
   onClose: () => void;
 }
 
-type TabType = 'settings' | 'moderation';
+type TabType = 'settings' | 'moderation' | 'ingestion';
 
 interface AppSettings {
   llm_model: string;
@@ -194,6 +195,17 @@ export function AdminSettings({ onClose }: AdminSettingsProps) {
             <Users className="w-4 h-4" />
             Moderacja ({reports.length})
           </button>
+          <button
+            onClick={() => setActiveTab('ingestion')}
+            className={`flex-1 flex items-center justify-center gap-2 py-3 text-sm font-medium transition-colors ${
+              activeTab === 'ingestion'
+                ? 'text-amber-400 border-b-2 border-amber-400'
+                : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            <FileText className="w-4 h-4" />
+            Import FB
+          </button>
         </div>
 
         {/* Error/Success messages */}
@@ -282,7 +294,7 @@ export function AdminSettings({ onClose }: AdminSettingsProps) {
                 )}
               </button>
             </div>
-          ) : (
+          ) : activeTab === 'moderation' ? (
             <div className="space-y-3">
               {reports.length === 0 ? (
                 <div className="text-center py-12">
@@ -300,6 +312,8 @@ export function AdminSettings({ onClose }: AdminSettingsProps) {
                 ))
               )}
             </div>
+          ) : (
+            <AdminReportIngestion />
           )}
         </div>
       </div>

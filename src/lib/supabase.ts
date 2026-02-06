@@ -93,6 +93,41 @@ export interface Database {
           updated_by?: string | null;
         };
       };
+      admin_reports: {
+        Row: {
+          id: string;
+          created_at: string;
+          report_date: string;
+          location: string;
+          region: string;
+          snow_conditions: string | null;
+          hazards: string[];
+          is_safe: boolean;
+          raw_source: string | null;
+          author_name: string | null;
+          source_type: string;
+          ingested_by: string | null;
+          deleted_at: string | null;
+          deleted_by: string | null;
+        };
+        Insert: {
+          id?: string;
+          report_date: string;
+          location: string;
+          region: string;
+          snow_conditions?: string | null;
+          hazards?: string[];
+          is_safe?: boolean;
+          raw_source?: string | null;
+          author_name?: string | null;
+          source_type?: string;
+          ingested_by?: string | null;
+        };
+        Update: {
+          deleted_at?: string;
+          deleted_by?: string;
+        };
+      };
     };
     Functions: {
       can_submit_report: {
@@ -112,6 +147,8 @@ export type Profile = Database['public']['Tables']['profiles']['Row'];
 export type Report = Database['public']['Tables']['reports']['Row'];
 export type ReportInsert = Database['public']['Tables']['reports']['Insert'];
 export type AppSetting = Database['public']['Tables']['app_settings']['Row'];
+export type AdminReport = Database['public']['Tables']['admin_reports']['Row'];
+export type AdminReportInsert = Database['public']['Tables']['admin_reports']['Insert'];
 
 // Initialize Supabase client
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
