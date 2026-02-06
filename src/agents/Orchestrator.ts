@@ -178,40 +178,72 @@ export class Orchestrator extends BaseAgent<OrchestratorInput, OrchestratorOutpu
 
   /**
    * Calculate individual scores for a route
+   * Scores vary based on route characteristics and current conditions
    */
   private calculateScores(
     route: Route,
     weather?: WeatherData,
     avalanche?: AvalancheReport
   ): { weather: number; avalanche: number; snowConditions: number } {
-    // Weather score (0-100)
+    // Weather score (0-100) - considers route-specific factors
     let weatherScore = 50; // Base score when no data
     if (weather) {
-      weatherScore = 70;
-      if (weather.condition === 'clear') weatherScore += 20;
-      else if (weather.condition === 'partly_cloudy') weatherScore += 10;
-      else if (weather.condition === 'snow' || weather.condition === 'fog') weatherScore -= 20;
+      weatherScore = 50; // Start neutral
 
-      if (weather.windSpeed < 20) weatherScore += 10;
-      else if (weather.windSpeed > 40) weatherScore -= 30;
+      // Condition impact
+      if (weather.condition === 'clear') weatherScore += 25;
+      else if (weather.condition === 'partly_cloudy') weatherScore += 15;
+      else if (weather.condition === 'cloudy') weatherScore += 5;
+      else if (weather.condition === 'snow') weatherScore -= 5; // Light snow can be ok
+      else if (weather.condition === 'heavy_snow') weatherScore -= 20;
+      else if (weather.condition === 'fog') weatherScore -= 25;
+      else if (weather.condition === 'rain') weatherScore -= 30;
 
-      if (weather.visibility >= 10) weatherScore += 10;
+      // Wind - more impactful at higher altitudes
+      const altitudeFactor = Math.min(1.5, route.summit.altitude / 1500);
+      if (weather.windSpeed < 10) weatherScore += 15;
+      else if (weather.windSpeed < 20) weatherScore += 10;
+      else if (weather.windSpeed < 30) weatherScore -= 5 * altitudeFactor;
+      else if (weather.windSpeed < 40) weatherScore -= 15 * altitudeFactor;
+      else weatherScore -= 25 * altitudeFactor;
+
+      // Visibility
+      if (weather.visibility >= 15) weatherScore += 10;
+      else if (weather.visibility >= 10) weatherScore += 5;
+      else if (weather.visibility < 5) weatherScore -= 10;
       else if (weather.visibility < 2) weatherScore -= 20;
+
+      // Temperature consideration for comfort
+      // Very cold (<-15°C) or warm (>5°C) is less ideal
+      if (weather.temperature >= -10 && weather.temperature <= 0) {
+        weatherScore += 5; // Ideal skiing temps
+      } else if (weather.temperature < -15) {
+        weatherScore -= 10; // Very cold
+      } else if (weather.temperature > 5) {
+        weatherScore -= 10; // Warm/wet conditions
+      }
+
+      // Freezing level vs route altitude (affects snow quality)
+      if (weather.freezingLevel < route.summit.altitude) {
+        weatherScore += 5; // Summit is frozen - good
+      } else if (weather.freezingLevel > route.summit.altitude + 200) {
+        weatherScore -= 10; // Warm at summit - wet snow risk
+      }
     }
     weatherScore = Math.max(0, Math.min(100, weatherScore));
 
-    // Avalanche score (0-100)
-    let avalancheScore = 50; // Unknown when no data
+    // Avalanche/Safety score (0-100)
+    let avalancheScore = 70; // Assume moderate when no data (Beskidy)
     if (avalanche) {
       // Base score decreases with danger level
-      avalancheScore = Math.max(0, 100 - (avalanche.level - 1) * 25);
+      avalancheScore = Math.max(0, 100 - (avalanche.level - 1) * 20);
 
       // Check if route aspects match problem aspects
       const hasProblematicAspect = route.aspects.some((aspect) =>
         avalanche.problemAspects.includes(aspect)
       );
       if (hasProblematicAspect) {
-        avalancheScore -= 20;
+        avalancheScore -= 15;
       }
 
       // Check altitude
@@ -219,19 +251,56 @@ export class Orchestrator extends BaseAgent<OrchestratorInput, OrchestratorOutpu
         route.summit.altitude >= avalanche.altitudeRange.from &&
         route.summit.altitude <= avalanche.altitudeRange.to
       ) {
-        avalancheScore -= 15;
+        avalancheScore -= 10;
       }
+
+      // Steeper routes are riskier
+      if (route.difficulty === 'expert') avalancheScore -= 10;
+      else if (route.difficulty === 'difficult') avalancheScore -= 5;
     }
     avalancheScore = Math.max(0, Math.min(100, avalancheScore));
 
-    // Snow conditions score (based on weather data)
+    // Snow conditions score - route-specific based on aspect and altitude
     let snowScore = 50; // Unknown when no data
     if (weather) {
-      snowScore = 60;
-      if (weather.freshSnow24h > 0 && weather.freshSnow24h < 30) snowScore += 30;
-      else if (weather.freshSnow24h >= 30) snowScore += 10; // Too much = potentially unstable
+      // Base varies by aspect - north-facing holds snow better
+      const northFacing = route.aspects.some(a => ['N', 'NE', 'NW'].includes(a));
+      const southFacing = route.aspects.some(a => ['S', 'SE', 'SW'].includes(a));
 
-      if (weather.snowBase > 50) snowScore += 10;
+      if (northFacing) {
+        snowScore = 65; // North holds powder/quality snow longer
+      } else if (southFacing) {
+        snowScore = 55; // South gets more sun, variable conditions
+      } else {
+        snowScore = 60; // East/West - moderate
+      }
+
+      // Fresh snow is great (but not too much)
+      if (weather.freshSnow24h > 0 && weather.freshSnow24h < 15) {
+        snowScore += 20; // Perfect fresh snow
+      } else if (weather.freshSnow24h >= 15 && weather.freshSnow24h < 30) {
+        snowScore += 10; // Good but settling needed
+      } else if (weather.freshSnow24h >= 30) {
+        snowScore += 5; // Lots of snow - avalanche concern
+      }
+
+      // Snow base depth
+      if (weather.snowBase >= 100) snowScore += 10;
+      else if (weather.snowBase >= 50) snowScore += 5;
+      else if (weather.snowBase < 30) snowScore -= 15; // Not enough base
+
+      // Temperature affects snow quality
+      if (weather.temperature < -5) {
+        snowScore += 5; // Cold = preserved snow
+      } else if (weather.temperature > 3) {
+        // Warm temps - bad for north, ok for south (corn potential)
+        if (northFacing) snowScore -= 10;
+        else if (southFacing) snowScore += 5; // Corn snow potential
+      }
+
+      // Higher altitude = generally better snow
+      if (route.summit.altitude > 1500) snowScore += 5;
+      else if (route.summit.altitude < 1000) snowScore -= 5;
     }
     snowScore = Math.max(0, Math.min(100, snowScore));
 
