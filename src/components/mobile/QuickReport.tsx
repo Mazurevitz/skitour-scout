@@ -7,7 +7,7 @@
  */
 
 import { useState, useRef } from 'react';
-import { X, MapPin, Send, Star, Loader2, Navigation, ArrowUp, ArrowDown } from 'lucide-react';
+import { X, MapPin, Send, Star, Loader2, Navigation, ArrowUp, ArrowDown, AlertCircle, Clock, LogIn } from 'lucide-react';
 import type {
   ReportType,
   TrackStatus,
@@ -15,29 +15,34 @@ import type {
   SnowCondition,
   NewReportInput,
 } from '@/stores/useReportsStore';
+import { useReportsStore } from '@/stores/useReportsStore';
+import { useAuthStore } from '@/stores/useAuthStore';
+import { isSupabaseConfigured } from '@/lib/supabase';
+import { AuthModal } from '../auth/AuthModal';
+import { t } from '@/lib/translations';
 
 // Track status options for ascent
-const TRACK_STATUS_OPTIONS: { id: TrackStatus; label: string; labelPl: string; emoji: string }[] = [
-  { id: 'przetarte', label: 'Tracked', labelPl: 'Przetarte', emoji: '✅' },
-  { id: 'zasypane', label: 'Covered', labelPl: 'Zasypane', emoji: '❄️' },
-  { id: 'lod', label: 'Icy', labelPl: 'Lód', emoji: '🧊' },
+const TRACK_STATUS_OPTIONS: { id: TrackStatus; label: string; emoji: string }[] = [
+  { id: 'przetarte', label: t.reports.track.tracked, emoji: '✅' },
+  { id: 'zasypane', label: t.reports.track.covered, emoji: '❄️' },
+  { id: 'lod', label: t.reports.track.icy, emoji: '🧊' },
 ];
 
 // Gear options for ascent
-const GEAR_OPTIONS: { id: AscentGear; label: string; labelPl: string; emoji: string }[] = [
-  { id: 'foki', label: 'Skins', labelPl: 'Foki', emoji: '🦭' },
-  { id: 'harszle', label: 'Ski crampons', labelPl: 'Harszle', emoji: '⛓️' },
-  { id: 'raki', label: 'Crampons', labelPl: 'Raki', emoji: '🦀' },
+const GEAR_OPTIONS: { id: AscentGear; label: string; emoji: string }[] = [
+  { id: 'foki', label: t.reports.gear.skins, emoji: '🦭' },
+  { id: 'harszle', label: t.reports.gear.skiCrampons, emoji: '⛓️' },
+  { id: 'raki', label: t.reports.gear.crampons, emoji: '🦀' },
 ];
 
 // Snow condition options for descent
-const SNOW_CONDITIONS: { id: SnowCondition; label: string; labelPl: string; emoji: string }[] = [
-  { id: 'puch', label: 'Powder', labelPl: 'Puch', emoji: '❄️' },
-  { id: 'firn', label: 'Corn', labelPl: 'Firn', emoji: '🌞' },
-  { id: 'cukier', label: 'Sugar', labelPl: 'Cukier', emoji: '✨' },
-  { id: 'szren', label: 'Crust', labelPl: 'Szreń', emoji: '🧊' },
-  { id: 'beton', label: 'Hard/Icy', labelPl: 'Beton', emoji: '🪨' },
-  { id: 'kamienie', label: 'Rocks', labelPl: 'Kamienie', emoji: '⚠️' },
+const SNOW_CONDITIONS: { id: SnowCondition; label: string; emoji: string }[] = [
+  { id: 'puch', label: t.reports.snow.powder, emoji: '❄️' },
+  { id: 'firn', label: t.reports.snow.corn, emoji: '🌞' },
+  { id: 'cukier', label: t.reports.snow.sugar, emoji: '✨' },
+  { id: 'szren', label: t.reports.snow.crust, emoji: '🧊' },
+  { id: 'beton', label: t.reports.snow.hardIcy, emoji: '🪨' },
+  { id: 'kamienie', label: t.reports.snow.rocks, emoji: '⚠️' },
 ];
 
 const LOCATIONS: Record<string, string[]> = {
@@ -62,6 +67,7 @@ export function QuickReport({ isOpen, onClose, onSubmit, currentRegion }: QuickR
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [dragOffset, setDragOffset] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
 
   // Ascent state
   const [trackStatus, setTrackStatus] = useState<TrackStatus | null>(null);
@@ -71,8 +77,15 @@ export function QuickReport({ isOpen, onClose, onSubmit, currentRegion }: QuickR
   const [snowCondition, setSnowCondition] = useState<SnowCondition | null>(null);
   const [qualityRating, setQualityRating] = useState(3);
 
+  // Auth and reports store
+  const { user, initialized: authInitialized } = useAuthStore();
+  const { error: reportError, clearError } = useReportsStore();
+
   const startY = useRef(0);
   const locations = LOCATIONS[currentRegion] || LOCATIONS['Beskid Śląski'];
+
+  // Check if auth is required (Supabase configured but user not logged in)
+  const requiresAuth = isSupabaseConfigured() && !user;
 
   // Swipe to dismiss handlers
   const handleTouchStart = (e: React.TouchEvent) => {
@@ -97,7 +110,7 @@ export function QuickReport({ isOpen, onClose, onSubmit, currentRegion }: QuickR
 
   const handleGetLocation = () => {
     if (!navigator.geolocation) {
-      alert('GPS not available on this device');
+      alert('GPS niedostępny na tym urządzeniu');
       return;
     }
 
@@ -113,7 +126,7 @@ export function QuickReport({ isOpen, onClose, onSubmit, currentRegion }: QuickR
       (error) => {
         console.error('GPS error:', error);
         setIsGettingLocation(false);
-        alert('Could not get GPS location');
+        alert('Nie udało się pobrać lokalizacji GPS');
       },
       { enableHighAccuracy: true, timeout: 10000 }
     );
@@ -135,7 +148,14 @@ export function QuickReport({ isOpen, onClose, onSubmit, currentRegion }: QuickR
   const handleSubmit = async () => {
     if (!canSubmit()) return;
 
+    // Check if auth is required
+    if (requiresAuth) {
+      setShowAuthModal(true);
+      return;
+    }
+
     setIsSubmitting(true);
+    clearError();
 
     const baseReport = {
       location,
@@ -166,19 +186,23 @@ export function QuickReport({ isOpen, onClose, onSubmit, currentRegion }: QuickR
       };
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 300));
-    onSubmit(report);
-    setIsSubmitting(false);
+    try {
+      await onSubmit(report);
+      setIsSubmitting(false);
 
-    // Reset form
-    setTrackStatus(null);
-    setGearNeeded([]);
-    setSnowCondition(null);
-    setQualityRating(3);
-    setLocation('');
-    setNotes('');
-    setGpsCoords(null);
-    onClose();
+      // Reset form
+      setTrackStatus(null);
+      setGearNeeded([]);
+      setSnowCondition(null);
+      setQualityRating(3);
+      setLocation('');
+      setNotes('');
+      setGpsCoords(null);
+      onClose();
+    } catch {
+      // Error is handled by the store
+      setIsSubmitting(false);
+    }
   };
 
   if (!isOpen) return null;
@@ -209,7 +233,7 @@ export function QuickReport({ isOpen, onClose, onSubmit, currentRegion }: QuickR
 
           {/* Header - part of swipe area */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
-            <h2 className="text-lg font-semibold text-white">Quick Report</h2>
+            <h2 className="text-lg font-semibold text-white">{t.reports.title}</h2>
             <button
               onClick={onClose}
               onTouchStart={(e) => e.stopPropagation()}
@@ -221,9 +245,58 @@ export function QuickReport({ isOpen, onClose, onSubmit, currentRegion }: QuickR
 
           {/* Swipe hint */}
           <div className="text-center py-1 text-xs text-gray-600">
-            Swipe down to close
+            {t.reports.swipeToClose}
           </div>
         </div>
+
+        {/* Auth Required Notice */}
+        {requiresAuth && authInitialized && (
+          <div className="mx-4 mt-2 p-4 bg-blue-500/10 border border-blue-500/30 rounded-xl">
+            <div className="flex items-start gap-3">
+              <LogIn className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-blue-400 text-sm font-medium">{t.reports.loginRequired}</p>
+                <p className="text-blue-400/70 text-xs mt-1">
+                  {t.reports.loginToReport}
+                </p>
+                <button
+                  onClick={() => setShowAuthModal(true)}
+                  className="mt-2 px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-500 transition-colors"
+                >
+                  {t.login}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Rate Limit Error */}
+        {reportError?.type === 'rate_limit' && (
+          <div className="mx-4 mt-2 p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl">
+            <div className="flex items-start gap-3">
+              <Clock className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-amber-400 text-sm font-medium">{t.reports.rateLimit}</p>
+                <p className="text-amber-400/70 text-xs mt-1">
+                  {reportError.message}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* General Error */}
+        {reportError?.type === 'error' && (
+          <div className="mx-4 mt-2 p-4 bg-red-500/10 border border-red-500/30 rounded-xl">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+              <div>
+                <p className="text-red-400 text-sm font-medium">{t.error}</p>
+                <p className="text-red-400/70 text-xs mt-1">{reportError.message}</p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Report Type Tabs */}
         <div className="px-4 pt-2">
@@ -237,7 +310,7 @@ export function QuickReport({ isOpen, onClose, onSubmit, currentRegion }: QuickR
               }`}
             >
               <ArrowUp className="w-4 h-4" />
-              Podejście
+              {t.reports.ascent}
             </button>
             <button
               onClick={() => setReportType('descent')}
@@ -248,7 +321,7 @@ export function QuickReport({ isOpen, onClose, onSubmit, currentRegion }: QuickR
               }`}
             >
               <ArrowDown className="w-4 h-4" />
-              Zjazd
+              {t.reports.descent}
             </button>
           </div>
         </div>
@@ -261,7 +334,7 @@ export function QuickReport({ isOpen, onClose, onSubmit, currentRegion }: QuickR
               {/* Track Status */}
               <div>
                 <label className="text-sm font-medium text-gray-400 mb-3 block">
-                  Track Status
+                  {t.reports.trackStatus}
                 </label>
                 <div className="grid grid-cols-3 gap-2">
                   {TRACK_STATUS_OPTIONS.map((opt) => (
@@ -275,7 +348,7 @@ export function QuickReport({ isOpen, onClose, onSubmit, currentRegion }: QuickR
                       }`}
                     >
                       <span className="text-2xl block mb-1">{opt.emoji}</span>
-                      <span className="text-sm font-medium text-white">{opt.labelPl}</span>
+                      <span className="text-sm font-medium text-white">{opt.label}</span>
                     </button>
                   ))}
                 </div>
@@ -284,7 +357,7 @@ export function QuickReport({ isOpen, onClose, onSubmit, currentRegion }: QuickR
               {/* Gear Needed */}
               <div>
                 <label className="text-sm font-medium text-gray-400 mb-3 block">
-                  Gear Needed (select all that apply)
+                  {t.reports.gearNeeded}
                 </label>
                 <div className="grid grid-cols-3 gap-2">
                   {GEAR_OPTIONS.map((opt) => (
@@ -298,7 +371,7 @@ export function QuickReport({ isOpen, onClose, onSubmit, currentRegion }: QuickR
                       }`}
                     >
                       <span className="text-2xl block mb-1">{opt.emoji}</span>
-                      <span className="text-sm font-medium text-white">{opt.labelPl}</span>
+                      <span className="text-sm font-medium text-white">{opt.label}</span>
                     </button>
                   ))}
                 </div>
@@ -312,7 +385,7 @@ export function QuickReport({ isOpen, onClose, onSubmit, currentRegion }: QuickR
               {/* Snow Condition */}
               <div>
                 <label className="text-sm font-medium text-gray-400 mb-3 block">
-                  Snow Condition
+                  {t.reports.snowCondition}
                 </label>
                 <div className="grid grid-cols-3 gap-2">
                   {SNOW_CONDITIONS.map((c) => (
@@ -326,7 +399,7 @@ export function QuickReport({ isOpen, onClose, onSubmit, currentRegion }: QuickR
                       }`}
                     >
                       <span className="text-2xl block mb-1">{c.emoji}</span>
-                      <span className="text-sm font-medium text-white">{c.labelPl}</span>
+                      <span className="text-sm font-medium text-white">{c.label}</span>
                     </button>
                   ))}
                 </div>
@@ -335,7 +408,7 @@ export function QuickReport({ isOpen, onClose, onSubmit, currentRegion }: QuickR
               {/* Quality Rating */}
               <div>
                 <label className="text-sm font-medium text-gray-400 mb-3 block">
-                  Quality Rating
+                  {t.reports.qualityRating}
                 </label>
                 <div className="flex justify-center gap-2">
                   {[1, 2, 3, 4, 5].map((star) => (
@@ -361,7 +434,7 @@ export function QuickReport({ isOpen, onClose, onSubmit, currentRegion }: QuickR
           {/* Location (shared) */}
           <div>
             <label className="text-sm font-medium text-gray-400 mb-3 block">
-              Location
+              {t.reports.location}
             </label>
             <div className="flex gap-2 mb-3">
               <button
@@ -375,7 +448,7 @@ export function QuickReport({ isOpen, onClose, onSubmit, currentRegion }: QuickR
                   <Navigation className="w-5 h-5 text-blue-400" />
                 )}
                 <span className="text-sm text-white">
-                  {gpsCoords ? 'GPS Added' : 'Use GPS'}
+                  {gpsCoords ? t.reports.gpsAdded : t.reports.useGps}
                 </span>
               </button>
               {gpsCoords && (
@@ -409,12 +482,12 @@ export function QuickReport({ isOpen, onClose, onSubmit, currentRegion }: QuickR
           {/* Notes (shared) */}
           <div>
             <label className="text-sm font-medium text-gray-400 mb-3 block">
-              Notes (optional)
+              {t.reports.notes}
             </label>
             <textarea
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              placeholder="Any additional observations..."
+              placeholder={t.reports.notesPlaceholder}
               className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 resize-none h-20 focus:outline-none focus:border-blue-500 text-base"
             />
           </div>
@@ -436,7 +509,7 @@ export function QuickReport({ isOpen, onClose, onSubmit, currentRegion }: QuickR
             ) : (
               <>
                 <Send className="w-6 h-6" />
-                Submit {reportType === 'ascent' ? 'Ascent' : 'Descent'} Report
+                {reportType === 'ascent' ? t.reports.submitAscent : t.reports.submitDescent}
               </>
             )}
           </button>
@@ -452,6 +525,12 @@ export function QuickReport({ isOpen, onClose, onSubmit, currentRegion }: QuickR
           animation: slide-up 0.3s ease-out;
         }
       `}</style>
+
+      {/* Auth Modal */}
+      <AuthModal
+        isOpen={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+      />
     </div>
   );
 }

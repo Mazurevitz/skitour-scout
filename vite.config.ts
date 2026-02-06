@@ -66,11 +66,11 @@ export default defineConfig({
             },
           },
           {
-            // Cache proxy API responses
-            urlPattern: /^\/api\/proxy\/.*/i,
+            // Cache Supabase Edge Function responses
+            urlPattern: /^https:\/\/.*\.supabase\.co\/functions\/v1\/.*/i,
             handler: 'NetworkFirst',
             options: {
-              cacheName: 'proxy-api-cache',
+              cacheName: 'edge-function-cache',
               expiration: {
                 maxEntries: 30,
                 maxAgeSeconds: 60 * 60, // 1 hour
@@ -92,26 +92,8 @@ export default defineConfig({
   server: {
     port: 3000,
     host: true,
-    proxy: {
-      // Proxy for TOPR avalanche data (bypasses CORS)
-      '/api/proxy/topr': {
-        target: 'https://lawiny.topr.pl',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/proxy\/topr/, ''),
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; SkitourScout/1.0)',
-        },
-      },
-      // Proxy for DuckDuckGo search (bypasses CORS)
-      '/api/proxy/ddg': {
-        target: 'https://html.duckduckgo.com',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api\/proxy\/ddg/, ''),
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; SkitourScout/1.0)',
-        },
-      },
-    },
+    // Note: Proxy config removed - all API calls now go through Supabase Edge Functions in production
+    // For local development without Supabase, the app will work in offline/local mode
   },
   build: {
     target: 'es2020',

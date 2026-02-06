@@ -53,3 +53,7 @@ credentials.json
 secrets.json
 *.pem
 *.key
+
+# Supabase
+.supabase/
+supabase/.temp/

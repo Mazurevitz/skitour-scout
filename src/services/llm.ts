@@ -1,25 +1,13 @@
 /**
  * LLM Service
  *
- * Abstraction layer for LLM providers (Ollama, OpenRouter).
- * Ollama is the default (local, free), with OpenRouter as fallback.
+ * Abstraction layer for LLM via Supabase Edge Function.
+ * All API calls are proxied through the backend to keep API keys secure.
  *
  * @module services/llm
  */
 
-export type LLMProvider = 'ollama' | 'openrouter';
-
-export interface LLMConfig {
-  provider: LLMProvider;
-  /** Ollama base URL (default: http://localhost:11434) */
-  ollamaUrl?: string;
-  /** Ollama model name (default: llama3.2) */
-  ollamaModel?: string;
-  /** OpenRouter API key */
-  openrouterApiKey?: string;
-  /** OpenRouter model (default: meta-llama/llama-3.2-3b-instruct:free) */
-  openrouterModel?: string;
-}
+import { getEdgeFunctionUrl, getAuthHeaders, isSupabaseConfigured } from '../lib/supabase';
 
 export interface LLMMessage {
   role: 'system' | 'user' | 'assistant';
@@ -29,65 +17,34 @@ export interface LLMMessage {
 export interface LLMResponse {
   content: string;
   model: string;
-  provider: LLMProvider;
 }
 
-const DEFAULT_OLLAMA_URL = 'http://localhost:11434';
-const DEFAULT_OLLAMA_MODEL = 'llama3.2';
-// Free tier model on OpenRouter
-const DEFAULT_OPENROUTER_MODEL = 'meta-llama/llama-3.2-3b-instruct:free';
+// Using paid model - free models are often rate-limited upstream
+const DEFAULT_MODEL = 'meta-llama/llama-3.1-8b-instruct';
 
 /**
  * LLM Service class
  *
  * @example
  * ```typescript
- * const llm = new LLMService({ provider: 'ollama' });
+ * const llm = new LLMService();
  * const response = await llm.complete([
  *   { role: 'user', content: 'Summarize this ski report...' }
  * ]);
  * ```
  */
 export class LLMService {
-  private config: LLMConfig;
+  private model: string;
 
-  constructor(config: Partial<LLMConfig> = {}) {
-    this.config = {
-      provider: config.provider ?? 'ollama',
-      ollamaUrl: config.ollamaUrl ?? DEFAULT_OLLAMA_URL,
-      ollamaModel: config.ollamaModel ?? DEFAULT_OLLAMA_MODEL,
-      openrouterApiKey: config.openrouterApiKey,
-      openrouterModel: config.openrouterModel ?? DEFAULT_OPENROUTER_MODEL,
-    };
+  constructor(model?: string) {
+    this.model = model ?? DEFAULT_MODEL;
   }
 
   /**
-   * Check if Ollama is available
+   * Check if LLM service is available
    */
-  async checkOllamaHealth(): Promise<boolean> {
-    try {
-      const response = await fetch(`${this.config.ollamaUrl}/api/tags`, {
-        method: 'GET',
-        signal: AbortSignal.timeout(3000),
-      });
-      return response.ok;
-    } catch {
-      return false;
-    }
-  }
-
-  /**
-   * List available Ollama models
-   */
-  async listOllamaModels(): Promise<string[]> {
-    try {
-      const response = await fetch(`${this.config.ollamaUrl}/api/tags`);
-      if (!response.ok) return [];
-      const data = await response.json();
-      return data.models?.map((m: { name: string }) => m.name) ?? [];
-    } catch {
-      return [];
-    }
+  isAvailable(): boolean {
+    return isSupabaseConfigured();
   }
 
   /**
@@ -95,13 +52,39 @@ export class LLMService {
    */
   async complete(
     messages: LLMMessage[],
-    options?: { signal?: AbortSignal }
+    options?: { signal?: AbortSignal; temperature?: number; max_tokens?: number }
   ): Promise<LLMResponse> {
-    if (this.config.provider === 'ollama') {
-      return this.completeWithOllama(messages, options);
-    } else {
-      return this.completeWithOpenRouter(messages, options);
+    const edgeFunctionUrl = getEdgeFunctionUrl('llm-proxy');
+
+    if (!edgeFunctionUrl) {
+      throw new Error('LLM service not configured');
     }
+
+    const headers = await getAuthHeaders();
+
+    const response = await fetch(edgeFunctionUrl, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        messages,
+        model: this.model,
+        temperature: options?.temperature ?? 0.7,
+        max_tokens: options?.max_tokens ?? 1024,
+      }),
+      signal: options?.signal,
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+      throw new Error(error.error || `LLM request failed: ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    return {
+      content: data.choices?.[0]?.message?.content ?? '',
+      model: data.model || this.model,
+    };
   }
 
   /**
@@ -124,115 +107,31 @@ export class LLMService {
   }
 
   /**
-   * Complete using Ollama
+   * Set model to use
    */
-  private async completeWithOllama(
-    messages: LLMMessage[],
-    options?: { signal?: AbortSignal }
-  ): Promise<LLMResponse> {
-    const response = await fetch(`${this.config.ollamaUrl}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: this.config.ollamaModel,
-        messages,
-        stream: false,
-      }),
-      signal: options?.signal,
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Ollama error: ${response.status} - ${error}`);
-    }
-
-    const data = await response.json();
-
-    return {
-      content: data.message?.content ?? '',
-      model: this.config.ollamaModel!,
-      provider: 'ollama',
-    };
+  setModel(model: string): void {
+    this.model = model;
   }
 
   /**
-   * Complete using OpenRouter
+   * Get current model
    */
-  private async completeWithOpenRouter(
-    messages: LLMMessage[],
-    options?: { signal?: AbortSignal }
-  ): Promise<LLMResponse> {
-    if (!this.config.openrouterApiKey) {
-      throw new Error('OpenRouter API key not configured');
-    }
-
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.config.openrouterApiKey}`,
-        'HTTP-Referer': 'https://github.com/skitourscout',
-        'X-Title': 'SkitourScout',
-      },
-      body: JSON.stringify({
-        model: this.config.openrouterModel,
-        messages,
-      }),
-      signal: options?.signal,
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`OpenRouter error: ${response.status} - ${error}`);
-    }
-
-    const data = await response.json();
-
-    return {
-      content: data.choices?.[0]?.message?.content ?? '',
-      model: this.config.openrouterModel!,
-      provider: 'openrouter',
-    };
-  }
-
-  /**
-   * Update configuration
-   */
-  setConfig(config: Partial<LLMConfig>): void {
-    this.config = { ...this.config, ...config };
-  }
-
-  /**
-   * Get current configuration
-   */
-  getConfig(): LLMConfig {
-    return { ...this.config };
+  getModel(): string {
+    return this.model;
   }
 }
 
 /**
- * Available free/cheap models on OpenRouter
+ * Available models on OpenRouter (configured server-side)
  */
-export const OPENROUTER_MODELS = [
+export const AVAILABLE_MODELS = [
   { id: 'meta-llama/llama-3.2-3b-instruct:free', name: 'Llama 3.2 3B (Free)', free: true },
   { id: 'meta-llama/llama-3.2-1b-instruct:free', name: 'Llama 3.2 1B (Free)', free: true },
   { id: 'google/gemma-2-9b-it:free', name: 'Gemma 2 9B (Free)', free: true },
   { id: 'mistralai/mistral-7b-instruct:free', name: 'Mistral 7B (Free)', free: true },
   { id: 'qwen/qwen-2-7b-instruct:free', name: 'Qwen 2 7B (Free)', free: true },
-  { id: 'meta-llama/llama-3.1-8b-instruct', name: 'Llama 3.1 8B ($0.06/M)', free: false },
-  { id: 'anthropic/claude-3-haiku', name: 'Claude 3 Haiku ($0.25/M)', free: false },
-];
-
-/**
- * Recommended Ollama models for summarization
- */
-export const RECOMMENDED_OLLAMA_MODELS = [
-  'llama3.2',
-  'llama3.2:1b',
-  'mistral',
-  'gemma2',
-  'qwen2.5',
-  'phi3',
+  { id: 'meta-llama/llama-3.1-8b-instruct', name: 'Llama 3.1 8B', free: false },
+  { id: 'anthropic/claude-3-haiku', name: 'Claude 3 Haiku', free: false },
 ];
 
 /**
@@ -240,11 +139,11 @@ export const RECOMMENDED_OLLAMA_MODELS = [
  */
 let llmInstance: LLMService | null = null;
 
-export function getLLMService(config?: Partial<LLMConfig>): LLMService {
+export function getLLMService(model?: string): LLMService {
   if (!llmInstance) {
-    llmInstance = new LLMService(config);
-  } else if (config) {
-    llmInstance.setConfig(config);
+    llmInstance = new LLMService(model);
+  } else if (model) {
+    llmInstance.setModel(model);
   }
   return llmInstance;
 }

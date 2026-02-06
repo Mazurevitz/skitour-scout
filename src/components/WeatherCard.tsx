@@ -16,6 +16,7 @@ import {
   Mountain,
 } from 'lucide-react';
 import type { WeatherData, WeatherCondition } from '@/types';
+import { t } from '@/lib/translations';
 
 interface WeatherCardProps {
   weather: WeatherData | null;
@@ -35,14 +36,14 @@ const conditionIcons: Record<WeatherCondition, typeof Sun> = {
 };
 
 const conditionLabels: Record<WeatherCondition, string> = {
-  clear: 'Clear',
-  partly_cloudy: 'Partly Cloudy',
-  cloudy: 'Cloudy',
-  snow: 'Snow',
-  heavy_snow: 'Heavy Snow',
-  rain: 'Rain',
-  fog: 'Fog',
-  wind: 'Windy',
+  clear: t.weather.conditions.clear,
+  partly_cloudy: t.weather.conditions.partlyCloudy,
+  cloudy: t.weather.conditions.cloudy,
+  snow: t.weather.conditions.snow,
+  heavy_snow: t.weather.conditions.heavySnow,
+  rain: t.weather.conditions.rain,
+  fog: t.weather.conditions.fog,
+  wind: t.weather.conditions.windy,
 };
 
 export function WeatherCard({ weather, loading, locationName }: WeatherCardProps) {
@@ -59,7 +60,7 @@ export function WeatherCard({ weather, loading, locationName }: WeatherCardProps
       <div className="bg-mountain-dark rounded-lg p-4">
         <div className="flex items-center gap-2 text-gray-400">
           <Cloud size={20} />
-          <span>No weather data available</span>
+          <span>{t.weather.noData}</span>
         </div>
       </div>
     );
@@ -90,7 +91,7 @@ export function WeatherCard({ weather, loading, locationName }: WeatherCardProps
             {weather.temperature}°C
           </div>
           <div className="text-sm text-gray-400">
-            Feels like {weather.feelsLike}°C
+            {t.weather.feelsLike} {weather.feelsLike}°C
           </div>
         </div>
 
@@ -100,7 +101,7 @@ export function WeatherCard({ weather, loading, locationName }: WeatherCardProps
             <div className="text-2xl font-bold text-blue-400">
               +{weather.freshSnow24h}cm
             </div>
-            <div className="text-xs text-gray-400">Fresh snow 24h</div>
+            <div className="text-xs text-gray-400">{t.weather.freshSnow}</div>
           </div>
         )}
       </div>
@@ -134,7 +135,7 @@ export function WeatherCard({ weather, loading, locationName }: WeatherCardProps
       {weather.snowBase > 0 && (
         <div className="mt-3 pt-3 border-t border-gray-700">
           <div className="flex items-center justify-between text-sm">
-            <span className="text-gray-400">Snow base</span>
+            <span className="text-gray-400">Pokrywa śnieżna</span>
             <span className="text-white font-medium">{weather.snowBase} cm</span>
           </div>
         </div>
@@ -144,7 +145,7 @@ export function WeatherCard({ weather, loading, locationName }: WeatherCardProps
       <div className="mt-3 text-xs text-gray-500 flex justify-between">
         <span>{weather.source}</span>
         <span>
-          Updated {new Date(weather.timestamp).toLocaleTimeString([], {
+          {t.weather.updated} {new Date(weather.timestamp).toLocaleTimeString('pl-PL', {
             hour: '2-digit',
             minute: '2-digit',
           })}

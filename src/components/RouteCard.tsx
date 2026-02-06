@@ -6,6 +6,8 @@
 
 import { Mountain, Clock, TrendingUp, AlertCircle, ChevronRight } from 'lucide-react';
 import type { EvaluatedRoute } from '@/types';
+import { t } from '@/lib/translations';
+import { ResortDescentBadge } from './ResortConditions';
 
 interface RouteCardProps {
   route: EvaluatedRoute;
@@ -20,10 +22,10 @@ const difficultyColors = {
 };
 
 const difficultyLabels = {
-  easy: 'Easy',
-  moderate: 'Moderate',
-  difficult: 'Difficult',
-  expert: 'Expert',
+  easy: t.routes.difficulty.easy,
+  moderate: t.routes.difficulty.moderate,
+  difficult: t.routes.difficulty.difficult,
+  expert: t.routes.difficulty.expert,
 };
 
 function getScoreColor(score: number): string {
@@ -39,6 +41,17 @@ function getScoreBg(score: number): string {
   if (score >= 40) return 'bg-orange-900/30';
   return 'bg-red-900/30';
 }
+
+const scoreBreakdownLabels: Record<string, string> = {
+  weather: 'Pogoda',
+  snow: 'Śnieg',
+  snowConditions: 'Śnieg',
+  safety: 'Bezpieczeństwo',
+  accessibility: 'Dostępność',
+};
+
+// Keys to exclude from display (no longer tracked or not meaningful)
+const excludedBreakdownKeys = ['crowding', 'avalanche'];
 
 export function RouteCard({ route, compact = false }: RouteCardProps) {
   if (compact) {
@@ -81,7 +94,7 @@ export function RouteCard({ route, compact = false }: RouteCardProps) {
             <div className={`text-2xl font-bold ${getScoreColor(route.conditionScore)}`}>
               {route.conditionScore}
             </div>
-            <div className="text-xs text-gray-400 text-center">Score</div>
+            <div className="text-xs text-gray-400 text-center">{t.routes.score}</div>
           </div>
         </div>
       </div>
@@ -93,32 +106,34 @@ export function RouteCard({ route, compact = false }: RouteCardProps) {
             <TrendingUp size={14} />
           </div>
           <div className="text-white font-medium">{route.elevation}m</div>
-          <div className="text-xs text-gray-500">Elevation</div>
+          <div className="text-xs text-gray-500">{t.routes.elevation}</div>
         </div>
         <div>
           <div className="flex items-center justify-center gap-1 text-gray-400 mb-1">
             <Mountain size={14} />
           </div>
           <div className="text-white font-medium">{route.distance}km</div>
-          <div className="text-xs text-gray-500">Distance</div>
+          <div className="text-xs text-gray-500">{t.routes.distance}</div>
         </div>
         <div>
           <div className="flex items-center justify-center gap-1 text-gray-400 mb-1">
             <Clock size={14} />
           </div>
           <div className="text-white font-medium">{route.duration}h</div>
-          <div className="text-xs text-gray-500">Duration</div>
+          <div className="text-xs text-gray-500">{t.routes.duration}</div>
         </div>
       </div>
 
       {/* Score breakdown */}
       <div className="p-4 border-b border-gray-700">
-        <div className="text-xs text-gray-400 mb-2">Score Breakdown</div>
+        <div className="text-xs text-gray-400 mb-2">{t.routes.scoreBreakdown}</div>
         <div className="space-y-2">
-          {Object.entries(route.scoreBreakdown).map(([key, value]) => (
+          {Object.entries(route.scoreBreakdown)
+            .filter(([key]) => !excludedBreakdownKeys.includes(key))
+            .map(([key, value]) => (
             <div key={key} className="flex items-center gap-2">
-              <div className="w-20 text-xs text-gray-400 capitalize">
-                {key === 'snowConditions' ? 'Snow' : key}
+              <div className="w-24 text-xs text-gray-400">
+                {scoreBreakdownLabels[key] || key}
               </div>
               <div className="flex-1 h-2 bg-gray-700 rounded-full overflow-hidden">
                 <div
@@ -141,7 +156,7 @@ export function RouteCard({ route, compact = false }: RouteCardProps) {
           <div className="mt-3 pt-3 border-t border-gray-700">
             <div className="flex items-center gap-1 text-xs text-orange-400 mb-2">
               <AlertCircle size={12} />
-              <span>Risk Factors</span>
+              <span>{t.routes.riskFactors}</span>
             </div>
             <div className="flex flex-wrap gap-1">
               {route.riskFactors.slice(0, 3).map((risk, i) => (
@@ -165,16 +180,20 @@ export function RouteCard({ route, compact = false }: RouteCardProps) {
         )}
       </div>
 
-      {/* Difficulty badge */}
-      <div className="px-4 pb-4">
-        <span
-          className={`inline-block px-2 py-1 rounded text-xs text-white ${difficultyColors[route.difficulty]}`}
-        >
-          {difficultyLabels[route.difficulty]}
-        </span>
-        <span className="ml-2 text-xs text-gray-500">
-          Aspects: {route.aspects.join(', ')}
-        </span>
+      {/* Difficulty badge and resort descent option */}
+      <div className="px-4 pb-4 space-y-2">
+        <div>
+          <span
+            className={`inline-block px-2 py-1 rounded text-xs text-white ${difficultyColors[route.difficulty]}`}
+          >
+            {difficultyLabels[route.difficulty]}
+          </span>
+          <span className="ml-2 text-xs text-gray-500">
+            Ekspozycje: {route.aspects.join(', ')}
+          </span>
+        </div>
+        {/* Show nearby resort as descent alternative */}
+        <ResortDescentBadge routeName={route.name} region={route.region} />
       </div>
     </div>
   );

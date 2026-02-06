@@ -6,10 +6,7 @@
 export {
   LLMService,
   getLLMService,
-  OPENROUTER_MODELS,
-  RECOMMENDED_OLLAMA_MODELS,
-  type LLMConfig,
-  type LLMProvider,
+  AVAILABLE_MODELS,
   type LLMMessage,
   type LLMResponse,
 } from './llm';

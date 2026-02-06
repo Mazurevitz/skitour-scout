@@ -8,6 +8,7 @@
 import { AlertTriangle, TrendingUp, TrendingDown, Minus, ExternalLink } from 'lucide-react';
 import type { AvalancheReport, AvalancheLevel } from '@/types';
 import { SafetyAgent } from '@/agents';
+import { t } from '@/lib/translations';
 
 interface AvalancheIndicatorProps {
   report: AvalancheReport | null;
@@ -17,11 +18,11 @@ interface AvalancheIndicatorProps {
 }
 
 const levelLabels: Record<AvalancheLevel, string> = {
-  1: 'Low',
-  2: 'Moderate',
-  3: 'Considerable',
-  4: 'High',
-  5: 'Very High',
+  1: t.avalanche.level1,
+  2: t.avalanche.level2,
+  3: t.avalanche.level3,
+  4: t.avalanche.level4,
+  5: t.avalanche.level5,
 };
 
 const levelColors: Record<AvalancheLevel, string> = {
@@ -41,36 +42,25 @@ export function AvalancheIndicator({ report, loading, region }: AvalancheIndicat
     );
   }
 
+  const isBeskidy = region?.toLowerCase().includes('beskid');
+  const isTatry = region?.toLowerCase().includes('tatry');
+
+  // Beskidy has no official avalanche service - show minimal note
+  if (isBeskidy) {
+    return null; // Don't show anything for Beskidy - handled in MobileDashboard
+  }
+
   if (!report) {
-    const isBeskidy = region?.toLowerCase().includes('beskid');
-    const isTatry = region?.toLowerCase().includes('tatry');
-
-    // Beskidy has no official avalanche service
-    if (isBeskidy) {
-      return (
-        <div className="bg-mountain-dark rounded-lg p-4">
-          <div className="flex items-center gap-2 text-yellow-400 mb-3">
-            <AlertTriangle size={20} />
-            <span className="font-medium">No avalanche service for Beskidy</span>
-          </div>
-          <p className="text-sm text-gray-400">
-            Beskidy does not have an official avalanche bulletin service.
-            Assess conditions locally and exercise caution on steep terrain.
-          </p>
-        </div>
-      );
-    }
-
     // Tatry - show link to TOPR if data couldn't be loaded
     if (isTatry) {
       return (
         <div className="bg-mountain-dark rounded-lg p-4">
           <div className="flex items-center gap-2 text-yellow-400 mb-3">
             <AlertTriangle size={20} />
-            <span className="font-medium">Could not load avalanche data</span>
+            <span className="font-medium">{t.avalanche.couldNotLoad}</span>
           </div>
           <p className="text-sm text-gray-400 mb-3">
-            Check TOPR for current Tatry avalanche conditions:
+            {t.avalanche.checkTopr}
           </p>
           <a
             href="https://lawiny.topr.pl/"
@@ -79,8 +69,8 @@ export function AvalancheIndicator({ report, loading, region }: AvalancheIndicat
             className="flex items-center justify-between p-2 bg-gray-800 rounded-lg hover:bg-gray-700 transition-colors"
           >
             <div>
-              <div className="text-sm text-white">TOPR Lawiny</div>
-              <div className="text-xs text-gray-500">Tatry avalanche bulletin</div>
+              <div className="text-sm text-white">{t.avalanche.toprLink}</div>
+              <div className="text-xs text-gray-500">lawiny.topr.pl</div>
             </div>
             <ExternalLink size={14} className="text-gray-500" />
           </a>
@@ -93,7 +83,7 @@ export function AvalancheIndicator({ report, loading, region }: AvalancheIndicat
       <div className="bg-mountain-dark rounded-lg p-4">
         <div className="flex items-center gap-2 text-gray-400">
           <AlertTriangle size={20} />
-          <span>No avalanche data available for this region</span>
+          <span>{t.avalanche.noService}</span>
         </div>
       </div>
     );
@@ -106,6 +96,12 @@ export function AvalancheIndicator({ report, loading, region }: AvalancheIndicat
         ? TrendingDown
         : Minus;
 
+  const trendLabels: Record<string, string> = {
+    increasing: 'rosnący',
+    decreasing: 'malejący',
+    stable: 'stabilny',
+  };
+
   const recommendations = SafetyAgent.getRecommendations(report.level);
 
   return (
@@ -117,12 +113,12 @@ export function AvalancheIndicator({ report, loading, region }: AvalancheIndicat
             <div className="text-4xl font-bold">{report.level}</div>
             <div>
               <div className="font-semibold">{levelLabels[report.level]}</div>
-              <div className="text-sm opacity-80">Avalanche Danger</div>
+              <div className="text-sm opacity-80">{t.avalanche.title}</div>
             </div>
           </div>
           <div className="flex items-center gap-1 opacity-80">
             <TrendIcon size={20} />
-            <span className="text-sm capitalize">{report.trend}</span>
+            <span className="text-sm">{trendLabels[report.trend] || report.trend}</span>
           </div>
         </div>
       </div>
@@ -131,7 +127,7 @@ export function AvalancheIndicator({ report, loading, region }: AvalancheIndicat
       <div className="p-4 space-y-3">
         {/* Problem aspects */}
         <div>
-          <div className="text-xs text-gray-400 mb-1">Problem Aspects</div>
+          <div className="text-xs text-gray-400 mb-1">{t.avalanche.problemAspects}</div>
           <div className="flex gap-1">
             {report.problemAspects.map((aspect) => (
               <span
@@ -146,7 +142,7 @@ export function AvalancheIndicator({ report, loading, region }: AvalancheIndicat
 
         {/* Altitude range */}
         <div>
-          <div className="text-xs text-gray-400 mb-1">Danger Altitude</div>
+          <div className="text-xs text-gray-400 mb-1">{t.avalanche.dangerAltitude}</div>
           <div className="text-sm text-white">
             {report.altitudeRange.from}m - {report.altitudeRange.to}m
           </div>
@@ -154,7 +150,7 @@ export function AvalancheIndicator({ report, loading, region }: AvalancheIndicat
 
         {/* Problems */}
         <div>
-          <div className="text-xs text-gray-400 mb-1">Active Problems</div>
+          <div className="text-xs text-gray-400 mb-1">{t.avalanche.activeProblems}</div>
           <div className="space-y-1">
             {report.problems.map((problem, i) => (
               <div key={i} className="text-sm text-gray-300 flex items-center gap-2">
@@ -168,7 +164,7 @@ export function AvalancheIndicator({ report, loading, region }: AvalancheIndicat
         {/* Recommendations */}
         {report.level >= 2 && (
           <div className="pt-2 border-t border-gray-700">
-            <div className="text-xs text-gray-400 mb-1">Recommendations</div>
+            <div className="text-xs text-gray-400 mb-1">{t.avalanche.recommendations}</div>
             <ul className="text-xs text-gray-300 space-y-1">
               {recommendations.slice(0, 2).map((rec, i) => (
                 <li key={i}>• {rec}</li>
@@ -194,7 +190,7 @@ export function AvalancheIndicator({ report, loading, region }: AvalancheIndicat
               <span>{report.source}</span>
             )}
             <span>
-              Valid until {new Date(report.validUntil).toLocaleDateString('pl-PL', {
+              {t.avalanche.validUntil} {new Date(report.validUntil).toLocaleDateString('pl-PL', {
                 day: 'numeric',
                 month: 'short',
                 hour: '2-digit',
@@ -204,7 +200,7 @@ export function AvalancheIndicator({ report, loading, region }: AvalancheIndicat
           </div>
           {report.issuedAt && (
             <div className="text-gray-600">
-              Issued: {new Date(report.issuedAt).toLocaleDateString('pl-PL', {
+              {t.avalanche.issued}: {new Date(report.issuedAt).toLocaleDateString('pl-PL', {
                 day: 'numeric',
                 month: 'short',
                 year: 'numeric',

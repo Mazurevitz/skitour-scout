@@ -8,7 +8,6 @@
  */
 
 import type { AgentResult, AgentInfo, AgentStatus } from '@/types';
-import type { LLMConfig } from '@/services/llm';
 
 /**
  * Configuration options for agent initialization
@@ -34,8 +33,8 @@ export interface AgentConfig {
 export interface AgentContext {
   /** Target region */
   region: string;
-  /** LLM configuration */
-  llmConfig?: LLMConfig;
+  /** Whether LLM is available */
+  llmEnabled?: boolean;
   /** Abort signal for cancellation */
   signal?: AbortSignal;
   /** Additional context data */

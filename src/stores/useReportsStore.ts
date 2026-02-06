@@ -1,13 +1,14 @@
 /**
  * Community Reports Store
  *
- * Manages community-submitted condition reports using IndexedDB for persistence.
- * Supports dual reporting: Ascent (Podejście) and Descent (Zjazd).
+ * Manages community-submitted condition reports using IndexedDB for persistence
+ * with Supabase sync for authenticated users.
  *
  * @module stores/useReportsStore
  */
 
 import { create } from 'zustand';
+import { supabase, isSupabaseConfigured, getEdgeFunctionUrl, getAuthHeaders, Report } from '../lib/supabase';
 
 /**
  * Report type: Ascent or Descent
@@ -27,7 +28,7 @@ export type AscentGear = 'foki' | 'harszle' | 'raki';
 /**
  * Snow condition types for descent
  */
-export type SnowCondition = 'puch' | 'firn' | 'szren' | 'beton' | 'cukier' | 'kamienie';
+export type SnowCondition = 'puch' | 'firn' | 'szren' | 'beton' | 'cukier' | 'kamienie' | 'mokry';
 
 /**
  * Ascent-specific data
@@ -68,6 +69,10 @@ export interface CommunityReport {
   timestamp: string;
   /** Is this user's own report */
   isOwn: boolean;
+  /** User ID (for Supabase reports) */
+  userId?: string;
+  /** Synced to Supabase */
+  synced?: boolean;
 
   // Legacy fields for backwards compatibility
   /** @deprecated Use descent.snowCondition instead */
@@ -82,23 +87,14 @@ export interface CommunityReport {
 export interface LocationConditions {
   location: string;
   region: string;
-  /** Most common snow condition (from descent reports) */
   primaryCondition: string;
-  /** Average quality rating */
   averageRating: number;
-  /** Number of reports */
   reportCount: number;
-  /** Number of ascent reports */
   ascentCount: number;
-  /** Number of descent reports */
   descentCount: number;
-  /** Most recent report timestamp */
   lastReport: string;
-  /** Most common track status (from ascent reports) */
   trackStatus?: TrackStatus;
-  /** Commonly needed gear */
   commonGear: AscentGear[];
-  /** Reported hazards */
   hazards: string[];
 }
 
@@ -116,24 +112,48 @@ export type NewReportInput = {
   | { type: 'descent'; descent: DescentData }
 );
 
+/**
+ * Rate limit error
+ */
+export interface RateLimitError {
+  type: 'rate_limit';
+  minutesRemaining: number;
+  message: string;
+}
+
+/**
+ * Auth required error
+ */
+export interface AuthRequiredError {
+  type: 'auth_required';
+  message: string;
+}
+
+export type ReportError = RateLimitError | AuthRequiredError | { type: 'error'; message: string };
+
 interface ReportsState {
   reports: CommunityReport[];
   isLoading: boolean;
   lastSync: string | null;
+  error: ReportError | null;
 
   // Actions
   initialize: () => Promise<void>;
   addReport: (report: NewReportInput) => Promise<void>;
+  deleteReport: (id: string) => Promise<void>;
+  syncWithSupabase: () => Promise<void>;
   getReportsForRegion: (region: string) => CommunityReport[];
   getReportsForLocation: (location: string) => CommunityReport[];
   getReportsWithCoordinates: () => CommunityReport[];
   getAggregatedConditions: (region: string) => LocationConditions[];
   getRecentReports: (hours?: number) => CommunityReport[];
+  getUserReports: (userId: string) => CommunityReport[];
   clearOldReports: (daysOld?: number) => Promise<void>;
+  clearError: () => void;
 }
 
 const DB_NAME = 'skitour-scout-reports';
-const DB_VERSION = 2; // Incremented for schema change
+const DB_VERSION = 3; // Incremented for sync support
 const STORE_NAME = 'reports';
 
 /**
@@ -155,6 +175,7 @@ function openDB(): Promise<IDBDatabase> {
         store.createIndex('location', 'location', { unique: false });
         store.createIndex('timestamp', 'timestamp', { unique: false });
         store.createIndex('type', 'type', { unique: false });
+        store.createIndex('userId', 'userId', { unique: false });
       }
     };
   });
@@ -168,13 +189,43 @@ function generateId(): string {
 }
 
 /**
+ * Convert Supabase report to CommunityReport
+ */
+function fromSupabaseReport(report: Report, currentUserId?: string): CommunityReport {
+  const communityReport: CommunityReport = {
+    id: report.id,
+    type: report.type,
+    location: report.location,
+    region: report.region,
+    coordinates: report.coordinates || undefined,
+    notes: report.notes || undefined,
+    timestamp: report.created_at,
+    isOwn: report.user_id === currentUserId,
+    userId: report.user_id,
+    synced: true,
+  };
+
+  if (report.type === 'ascent') {
+    communityReport.ascent = {
+      trackStatus: report.track_status as TrackStatus,
+      gearNeeded: (report.gear_needed || []) as AscentGear[],
+    };
+  } else {
+    communityReport.descent = {
+      snowCondition: report.snow_condition as SnowCondition,
+      qualityRating: report.quality_rating || 3,
+    };
+  }
+
+  return communityReport;
+}
+
+/**
  * Migrate legacy report to new format
  */
 function migrateReport(report: CommunityReport): CommunityReport {
-  // If report already has new format, return as-is
   if (report.type) return report;
 
-  // Migrate legacy report to descent type
   return {
     ...report,
     type: 'descent',
@@ -189,11 +240,13 @@ export const useReportsStore = create<ReportsState>((set, get) => ({
   reports: [],
   isLoading: false,
   lastSync: null,
+  error: null,
 
   initialize: async () => {
-    set({ isLoading: true });
+    set({ isLoading: true, error: null });
 
     try {
+      // Load from IndexedDB first
       const db = await openDB();
       const tx = db.transaction(STORE_NAME, 'readonly');
       const store = tx.objectStore(STORE_NAME);
@@ -204,30 +257,183 @@ export const useReportsStore = create<ReportsState>((set, get) => ({
         request.onerror = () => reject(request.error);
       });
 
-      // Migrate and sort reports
-      const reports = rawReports
+      const localReports = rawReports
         .map(migrateReport)
         .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
-      set({
-        reports,
-        isLoading: false,
-        lastSync: new Date().toISOString(),
-      });
-
       db.close();
+
+      set({ reports: localReports });
+
+      // Sync with Supabase if configured
+      if (isSupabaseConfigured()) {
+        await get().syncWithSupabase();
+      }
+
+      set({ isLoading: false, lastSync: new Date().toISOString() });
     } catch (error) {
       console.error('Failed to initialize reports store:', error);
       set({ isLoading: false });
     }
   },
 
+  syncWithSupabase: async () => {
+    if (!isSupabaseConfigured()) return;
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+
+      // Fetch all non-deleted reports from Supabase
+      const { data: supabaseReports, error } = await supabase
+        .from('reports')
+        .select('*')
+        .is('deleted_at', null)
+        .order('created_at', { ascending: false })
+        .limit(200);
+
+      if (error) {
+        console.error('Supabase sync error:', error);
+        return;
+      }
+
+      if (supabaseReports) {
+        const serverReports = supabaseReports.map((r: Report) => fromSupabaseReport(r, user?.id));
+
+        // Merge with local reports (keep local non-synced ones)
+        const { reports: localReports } = get();
+        const localOnlyReports = localReports.filter(r => !r.synced);
+
+        // Combine and deduplicate
+        const allReports = [...serverReports, ...localOnlyReports]
+          .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+        // Update IndexedDB with synced reports
+        const db = await openDB();
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+
+        await store.clear();
+        for (const report of allReports) {
+          await store.add(report);
+        }
+
+        db.close();
+
+        set({ reports: allReports, lastSync: new Date().toISOString() });
+      }
+    } catch (error) {
+      console.error('Failed to sync with Supabase:', error);
+    }
+  },
+
   addReport: async (reportInput) => {
+    set({ error: null });
+
+    // If Supabase is configured, try to submit via Edge Function
+    if (isSupabaseConfigured()) {
+      const { data: { user } } = await supabase.auth.getUser();
+
+      if (!user) {
+        set({
+          error: {
+            type: 'auth_required',
+            message: 'Musisz być zalogowany, aby dodać raport',
+          },
+        });
+        throw new Error('Authentication required');
+      }
+
+      try {
+        const edgeFunctionUrl = getEdgeFunctionUrl('submit-report');
+        const headers = await getAuthHeaders();
+
+        // Build request body
+        const body: Record<string, unknown> = {
+          type: reportInput.type,
+          location: reportInput.location,
+          region: reportInput.region,
+          coordinates: reportInput.coordinates,
+          notes: reportInput.notes,
+        };
+
+        if (reportInput.type === 'ascent') {
+          body.track_status = reportInput.ascent.trackStatus;
+          body.gear_needed = reportInput.ascent.gearNeeded;
+        } else {
+          body.snow_condition = reportInput.descent.snowCondition;
+          body.quality_rating = reportInput.descent.qualityRating;
+        }
+
+        const response = await fetch(edgeFunctionUrl!, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(body),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          if (response.status === 429) {
+            set({
+              error: {
+                type: 'rate_limit',
+                minutesRemaining: data.minutes_remaining || 30,
+                message: data.message || 'Limit raportów przekroczony',
+              },
+            });
+            throw new Error(data.message);
+          }
+          if (response.status === 401) {
+            set({
+              error: {
+                type: 'auth_required',
+                message: data.message || 'Musisz być zalogowany',
+              },
+            });
+            throw new Error(data.message);
+          }
+          throw new Error(data.message || 'Failed to submit report');
+        }
+
+        // Add to local state
+        const report: CommunityReport = {
+          ...reportInput,
+          id: data.report.id,
+          timestamp: data.report.created_at,
+          isOwn: true,
+          userId: user.id,
+          synced: true,
+        };
+
+        // Save to IndexedDB
+        const db = await openDB();
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        await store.add(report);
+        db.close();
+
+        set((state) => ({
+          reports: [report, ...state.reports],
+        }));
+
+        return;
+      } catch (error) {
+        // If it's a known error type, rethrow
+        if (error instanceof Error && (error.message.includes('Limit') || error.message.includes('zalogowany'))) {
+          throw error;
+        }
+        console.error('Supabase submission failed:', error);
+        // Fall through to local-only submission
+      }
+    }
+
+    // Local-only submission (fallback or when Supabase not configured)
     const report: CommunityReport = {
       ...reportInput,
       id: generateId(),
       timestamp: new Date().toISOString(),
       isOwn: true,
+      synced: false,
     };
 
     try {
@@ -252,6 +458,61 @@ export const useReportsStore = create<ReportsState>((set, get) => ({
     }
   },
 
+  deleteReport: async (id: string) => {
+    set({ error: null });
+
+    const { reports } = get();
+    const report = reports.find(r => r.id === id);
+
+    if (!report) {
+      throw new Error('Report not found');
+    }
+
+    // If synced with Supabase, soft delete there
+    if (report.synced && isSupabaseConfigured()) {
+      const { data: { user } } = await supabase.auth.getUser();
+
+      if (!user) {
+        set({
+          error: {
+            type: 'auth_required',
+            message: 'Musisz być zalogowany, aby usunąć raport',
+          },
+        });
+        throw new Error('Authentication required');
+      }
+
+      const { error } = await supabase
+        .from('reports')
+        .update({
+          deleted_at: new Date().toISOString(),
+          deleted_by: user.id,
+        } as never)
+        .eq('id', id);
+
+      if (error) {
+        console.error('Failed to delete report from Supabase:', error);
+        throw new Error('Failed to delete report');
+      }
+    }
+
+    // Remove from IndexedDB
+    try {
+      const db = await openDB();
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      await store.delete(id);
+      db.close();
+    } catch (error) {
+      console.error('Failed to delete from IndexedDB:', error);
+    }
+
+    // Remove from state
+    set((state) => ({
+      reports: state.reports.filter(r => r.id !== id),
+    }));
+  },
+
   getReportsForRegion: (region: string) => {
     const { reports } = get();
     return reports.filter((r) =>
@@ -272,10 +533,14 @@ export const useReportsStore = create<ReportsState>((set, get) => ({
     return reports.filter((r) => r.coordinates);
   },
 
+  getUserReports: (userId: string) => {
+    const { reports } = get();
+    return reports.filter((r) => r.userId === userId || (r.isOwn && !r.userId));
+  },
+
   getAggregatedConditions: (region: string) => {
     const regionReports = get().getReportsForRegion(region);
 
-    // Group by location
     const byLocation = new Map<string, CommunityReport[]>();
     for (const report of regionReports) {
       const existing = byLocation.get(report.location) || [];
@@ -289,7 +554,6 @@ export const useReportsStore = create<ReportsState>((set, get) => ({
       const ascentReports = reports.filter((r) => r.type === 'ascent');
       const descentReports = reports.filter((r) => r.type === 'descent');
 
-      // Get most common snow condition from descent reports
       const conditionCounts = new Map<string, number>();
       for (const r of descentReports) {
         const cond = r.descent?.snowCondition || r.condition || 'unknown';
@@ -298,7 +562,6 @@ export const useReportsStore = create<ReportsState>((set, get) => ({
       const primaryCondition = [...conditionCounts.entries()]
         .sort((a, b) => b[1] - a[1])[0]?.[0] || 'unknown';
 
-      // Average rating from descent reports
       const ratings = descentReports
         .map((r) => r.descent?.qualityRating || r.rating || 0)
         .filter((r) => r > 0);
@@ -306,7 +569,6 @@ export const useReportsStore = create<ReportsState>((set, get) => ({
         ? ratings.reduce((sum, r) => sum + r, 0) / ratings.length
         : 0;
 
-      // Most common track status from ascent reports
       const trackCounts = new Map<TrackStatus, number>();
       for (const r of ascentReports) {
         if (r.ascent?.trackStatus) {
@@ -316,7 +578,6 @@ export const useReportsStore = create<ReportsState>((set, get) => ({
       const trackStatus = [...trackCounts.entries()]
         .sort((a, b) => b[1] - a[1])[0]?.[0];
 
-      // Commonly needed gear
       const gearCounts = new Map<AscentGear, number>();
       for (const r of ascentReports) {
         for (const gear of r.ascent?.gearNeeded || []) {
@@ -324,10 +585,9 @@ export const useReportsStore = create<ReportsState>((set, get) => ({
         }
       }
       const commonGear = [...gearCounts.entries()]
-        .filter(([, count]) => count >= ascentReports.length * 0.3) // At least 30% mention it
+        .filter(([, count]) => count >= ascentReports.length * 0.3)
         .map(([gear]) => gear);
 
-      // Collect hazards from notes
       const hazards: string[] = [];
       const hazardKeywords = ['lawina', 'lód', 'mgła', 'wiatr', 'kamienie', 'niebezp'];
       for (const r of reports) {
@@ -381,7 +641,8 @@ export const useReportsStore = create<ReportsState>((set, get) => ({
           const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
           if (cursor) {
             const report = cursor.value as CommunityReport;
-            if (new Date(report.timestamp).getTime() < cutoff) {
+            // Only delete non-synced old reports
+            if (new Date(report.timestamp).getTime() < cutoff && !report.synced) {
               keysToDelete.push(report.id);
             }
             cursor.continue();
@@ -403,10 +664,16 @@ export const useReportsStore = create<ReportsState>((set, get) => ({
       db.close();
 
       set((state) => ({
-        reports: state.reports.filter((r) => new Date(r.timestamp).getTime() >= cutoff),
+        reports: state.reports.filter((r) =>
+          new Date(r.timestamp).getTime() >= cutoff || r.synced
+        ),
       }));
     } catch (error) {
       console.error('Failed to clear old reports:', error);
     }
+  },
+
+  clearError: () => {
+    set({ error: null });
   },
 }));

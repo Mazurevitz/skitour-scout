@@ -7,7 +7,23 @@
  * @module config/mcp
  */
 
-import type { MCPServerConfig } from '@/types';
+/**
+ * MCP Server configuration
+ */
+export interface MCPServerConfig {
+  /** Server identifier */
+  id: string;
+  /** Server name */
+  name: string;
+  /** Server URL or command */
+  endpoint: string;
+  /** Server type */
+  type: 'stdio' | 'http' | 'websocket';
+  /** Whether server is enabled */
+  enabled: boolean;
+  /** Additional server options */
+  options?: Record<string, unknown>;
+}
 
 /**
  * Default MCP server configurations
