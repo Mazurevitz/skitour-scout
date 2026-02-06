@@ -8,7 +8,7 @@
  */
 
 import { BaseAgent, type AgentContext } from './BaseAgent';
-import type { WeatherData, WeatherCondition, ElevationWeather, ElevationWeatherPoint } from '@/types';
+import type { WeatherData, WeatherCondition, ElevationWeather, ElevationWeatherPoint, DailyForecastPoint, ElevationForecast } from '@/types';
 
 /**
  * Weather agent input parameters
@@ -278,6 +278,51 @@ export class WeatherAgent extends BaseAgent<WeatherInput, WeatherData> {
   }
 
   /**
+   * Fetch daily forecast for a single point (tomorrow)
+   */
+  private async fetchPointForecast(
+    input: WeatherInput,
+    signal?: AbortSignal
+  ): Promise<DailyForecastPoint> {
+    const params = new URLSearchParams({
+      latitude: input.latitude.toString(),
+      longitude: input.longitude.toString(),
+      daily: [
+        'temperature_2m_max',
+        'temperature_2m_min',
+        'weather_code',
+        'wind_speed_10m_max',
+        'snowfall_sum',
+      ].join(','),
+      timezone: 'auto',
+      forecast_days: '2',
+    });
+
+    if (input.altitude) {
+      params.set('elevation', input.altitude.toString());
+    }
+
+    const url = `${WeatherAgent.API_BASE}?${params}`;
+    const response = await fetch(url, { signal });
+
+    if (!response.ok) {
+      throw new Error(`Weather API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    // Index 1 = tomorrow
+    const daily = data.daily;
+
+    return {
+      tempMax: Math.round(daily.temperature_2m_max[1]),
+      tempMin: Math.round(daily.temperature_2m_min[1]),
+      condition: mapWeatherCode(daily.weather_code[1]),
+      windSpeed: Math.round(daily.wind_speed_10m_max[1]),
+      snowfall: Math.round((daily.snowfall_sum[1] || 0) * 10) / 10,
+    };
+  }
+
+  /**
    * Fetch weather for a single point (internal helper)
    */
   private async fetchPointWeather(
@@ -355,18 +400,20 @@ export class WeatherAgent extends BaseAgent<WeatherInput, WeatherData> {
         const valley = valleyResult.value;
         const summit = summitResult.value;
 
-        // Fetch freezing level and snow (optional - don't fail if this errors)
+        // Fetch freezing level, snow, and tomorrow's forecast
         let freezingLevel = 1500;
         let freshSnow24h = 0;
+        let tomorrowFreezingLevel = 1500;
+        let tomorrow: ElevationForecast | undefined;
 
         try {
           const summitParams = new URLSearchParams({
             latitude: pair.summit.latitude.toString(),
             longitude: pair.summit.longitude.toString(),
             hourly: 'freezing_level_height',
-            daily: 'snowfall_sum',
+            daily: 'snowfall_sum,freezing_level_height_max',
             timezone: 'auto',
-            forecast_days: '1',
+            forecast_days: '2',
           });
 
           const extraResponse = await fetch(`${WeatherAgent.API_BASE}?${summitParams}`, { signal });
@@ -374,9 +421,30 @@ export class WeatherAgent extends BaseAgent<WeatherInput, WeatherData> {
             const extraData = await extraResponse.json();
             freezingLevel = extraData.hourly?.freezing_level_height?.[new Date().getHours()] ?? 1500;
             freshSnow24h = extraData.daily?.snowfall_sum?.[0] ?? 0;
+            tomorrowFreezingLevel = extraData.daily?.freezing_level_height_max?.[1] ?? 1500;
           }
         } catch {
           // Use defaults - this is optional data
+        }
+
+        // Fetch tomorrow's forecast for both points
+        try {
+          const [valleyForecast, summitForecast] = await Promise.all([
+            this.fetchPointForecast(pair.valley, signal),
+            this.fetchPointForecast(pair.summit, signal),
+          ]);
+
+          const tomorrowDate = new Date();
+          tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+
+          tomorrow = {
+            valley: valleyForecast,
+            summit: summitForecast,
+            freezingLevel: Math.round(tomorrowFreezingLevel),
+            date: tomorrowDate.toISOString().split('T')[0],
+          };
+        } catch {
+          // Tomorrow's forecast is optional
         }
 
         results.push({
@@ -387,6 +455,7 @@ export class WeatherAgent extends BaseAgent<WeatherInput, WeatherData> {
           freshSnow24h: Math.round(freshSnow24h * 10) / 10,
           timestamp: new Date().toISOString(),
           source: 'Open-Meteo',
+          tomorrow,
         });
 
         this.log(`${pair.name}: ${valley.temperature}°C → ${summit.temperature}°C`);

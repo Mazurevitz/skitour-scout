@@ -80,6 +80,36 @@ export interface ElevationWeatherPoint {
 }
 
 /**
+ * Daily forecast point (simplified for tomorrow)
+ */
+export interface DailyForecastPoint {
+  /** Temperature high */
+  tempMax: number;
+  /** Temperature low */
+  tempMin: number;
+  /** Weather condition */
+  condition: WeatherCondition;
+  /** Wind speed (max) in km/h */
+  windSpeed: number;
+  /** Expected snowfall in cm */
+  snowfall: number;
+}
+
+/**
+ * Tomorrow's forecast for elevation pair
+ */
+export interface ElevationForecast {
+  /** Valley forecast */
+  valley: DailyForecastPoint;
+  /** Summit forecast */
+  summit: DailyForecastPoint;
+  /** Freezing level */
+  freezingLevel: number;
+  /** Date string */
+  date: string;
+}
+
+/**
  * Multi-elevation weather data (valley to summit)
  */
 export interface ElevationWeather {
@@ -97,6 +127,8 @@ export interface ElevationWeather {
   timestamp: string;
   /** Data source */
   source: string;
+  /** Tomorrow's forecast */
+  tomorrow?: ElevationForecast;
 }
 
 /**
