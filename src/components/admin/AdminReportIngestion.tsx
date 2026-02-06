@@ -95,7 +95,15 @@ export function AdminReportIngestion() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to parse report');
+        // Build detailed error message
+        let errorMsg = data.error || 'Failed to parse report';
+        if (data.details) {
+          errorMsg += `\n\nSzczegóły: ${data.details}`;
+        }
+        if (data.raw_response) {
+          errorMsg += `\n\nOdpowiedź AI: ${data.raw_response}`;
+        }
+        throw new Error(errorMsg);
       }
 
       if (data.parsed) {
@@ -107,10 +115,16 @@ export function AdminReportIngestion() {
         setRawResponse(data.raw_response);
         setPhase('review');
       } else {
-        throw new Error('No parsed data returned');
+        let errorMsg = 'No parsed data returned';
+        if (data.raw_response) {
+          errorMsg += `\n\nOdpowiedź AI: ${data.raw_response}`;
+        }
+        throw new Error(errorMsg);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error');
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      setError(errorMessage);
+      console.error('Parse error:', err);
     } finally {
       setLoading(false);
     }
@@ -238,9 +252,11 @@ export function AdminReportIngestion() {
           </div>
 
           {error && (
-            <div className="flex items-center gap-2 p-3 bg-red-900/30 border border-red-800 rounded-lg text-red-400">
-              <AlertTriangle className="w-5 h-5 flex-shrink-0" />
-              <span>{error}</span>
+            <div className="p-3 bg-red-900/30 border border-red-800 rounded-lg text-red-400">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                <pre className="text-sm whitespace-pre-wrap break-words flex-1 font-sans">{error}</pre>
+              </div>
             </div>
           )}
 
@@ -400,9 +416,11 @@ export function AdminReportIngestion() {
           )}
 
           {error && (
-            <div className="flex items-center gap-2 p-3 bg-red-900/30 border border-red-800 rounded-lg text-red-400">
-              <AlertTriangle className="w-5 h-5 flex-shrink-0" />
-              <span>{error}</span>
+            <div className="p-3 bg-red-900/30 border border-red-800 rounded-lg text-red-400">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                <pre className="text-sm whitespace-pre-wrap break-words flex-1 font-sans">{error}</pre>
+              </div>
             </div>
           )}
 

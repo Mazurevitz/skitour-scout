@@ -70,11 +70,11 @@ serve(async (req) => {
       );
     }
 
-    // Get Anthropic API key
-    const anthropicKey = Deno.env.get('ANTHROPIC_API_KEY');
-    if (!anthropicKey) {
+    // Get OpenRouter API key
+    const openrouterKey = Deno.env.get('OPENROUTER_API_KEY');
+    if (!openrouterKey) {
       return new Response(
-        JSON.stringify({ error: 'Anthropic API key not configured' }),
+        JSON.stringify({ error: 'OpenRouter API key not configured' }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
@@ -83,7 +83,7 @@ serve(async (req) => {
     const today = new Date();
     const currentDate = today.toISOString().split('T')[0];
 
-    // Call Claude API
+    // System prompt for parsing
     const systemPrompt = `You are a mountain safety expert specializing in ski touring in Polish mountains (Beskidy, Tatry).
 Extract structured ski-touring data from messy Polish Facebook posts.
 
@@ -116,29 +116,34 @@ Return ONLY a valid JSON object with this exact structure:
   "author_name": "string or null"
 }`;
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    // Call OpenRouter API (Claude 3.5 Sonnet)
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': anthropicKey,
-        'anthropic-version': '2023-06-01',
+        'Authorization': `Bearer ${openrouterKey}`,
+        'HTTP-Referer': 'https://skitour-scout.pages.dev',
+        'X-Title': 'SkitourScout Admin',
       },
       body: JSON.stringify({
-        model: 'claude-3-5-sonnet-20241022',
+        model: 'anthropic/claude-3.5-sonnet',
         max_tokens: 1024,
         messages: [
+          {
+            role: 'system',
+            content: systemPrompt,
+          },
           {
             role: 'user',
             content: `Parse this Facebook post about ski touring conditions:\n\n${raw_text}`,
           },
         ],
-        system: systemPrompt,
       }),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('Anthropic API error:', errorText);
+      console.error('OpenRouter API error:', errorText);
       return new Response(
         JSON.stringify({ error: 'Failed to parse with AI', details: errorText }),
         { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -146,7 +151,7 @@ Return ONLY a valid JSON object with this exact structure:
     }
 
     const data = await response.json();
-    const content = data.content?.[0]?.text;
+    const content = data.choices?.[0]?.message?.content;
 
     if (!content) {
       return new Response(
