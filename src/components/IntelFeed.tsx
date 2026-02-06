@@ -6,6 +6,7 @@
 
 import { useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
+import { pl } from 'date-fns/locale';
 import {
   Search,
   Globe,
@@ -15,9 +16,11 @@ import {
   ThumbsDown,
   Minus,
   AlertTriangle,
+  Bot,
 } from 'lucide-react';
 import type { ConditionReport } from '@/agents';
 import { ConfidenceBadge, ConfidenceLegend } from './ConfidenceBadge';
+import { t } from '@/lib/translations';
 
 interface SearchStatus {
   status: 'idle' | 'success' | 'error' | 'no_results';
@@ -81,7 +84,7 @@ export function IntelFeed({
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <h3 className="text-sm font-medium text-gray-300">Condition Reports</h3>
+            <h3 className="text-sm font-medium text-gray-300">{t.intel.conditionReports}</h3>
             <button
               onClick={() => setShowLegend(!showLegend)}
               className="text-xs text-gray-500 hover:text-gray-400"
@@ -99,7 +102,7 @@ export function IntelFeed({
               onChange={(e) => setSelectedLocation(e.target.value)}
               className="flex-1 px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-gray-300 focus:outline-none focus:border-blue-500"
             >
-              <option value="all">All locations</option>
+              <option value="all">{t.community.allLocations}</option>
               {locations.map((loc) => (
                 <option key={loc} value={loc}>
                   {loc}
@@ -116,7 +119,7 @@ export function IntelFeed({
               ) : (
                 <Search size={12} />
               )}
-              {searchingWeb ? 'Searching...' : 'Search'}
+              {searchingWeb ? t.searching : t.search}
             </button>
           </div>
         )}
@@ -164,8 +167,8 @@ export function IntelFeed({
       {webReports.length === 0 && (
         <div className="text-center py-8 text-gray-500">
           <Search size={24} className="mx-auto mb-2 opacity-50" />
-          <p className="text-sm">No reports yet</p>
-          <p className="text-xs">Click "Search Web" to find recent conditions</p>
+          <p className="text-sm">{t.intel.noReportsYet}</p>
+          <p className="text-xs">{t.intel.clickSearch}</p>
         </div>
       )}
     </div>
@@ -177,10 +180,16 @@ export function IntelFeed({
  */
 function WebReportCard({ report }: { report: ConditionReport }) {
   const SentimentIcon = sentimentIcons[report.sentiment];
-  const timeAgo = formatDistanceToNow(new Date(report.reportDate), { addSuffix: true });
+  const timeAgo = formatDistanceToNow(new Date(report.reportDate), { addSuffix: true, locale: pl });
 
   return (
-    <div className="bg-mountain-dark rounded-lg p-4">
+    <div className="bg-mountain-dark rounded-lg p-4 border-l-4 border-l-gray-600">
+      {/* Auto-generated badge */}
+      <div className="flex items-center gap-1.5 mb-2">
+        <Bot className="w-3.5 h-3.5 text-gray-500" />
+        <span className="text-xs text-gray-500">Automatyczne • mniej wiarygodne</span>
+      </div>
+
       {/* Header with confidence */}
       <div className="flex items-start justify-between mb-2">
         <div className="flex items-center gap-2">
