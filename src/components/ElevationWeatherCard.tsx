@@ -2,8 +2,8 @@
  * Elevation Weather Card Component
  *
  * Shows weather comparison between valley and summit.
- * Helps users understand temperature gradient and what to expect
- * at different points of their ski tour.
+ * Desktop: Visual mountain cards with temp at top and bottom
+ * Mobile: Compact expandable list
  */
 
 import { useState } from 'react';
@@ -14,7 +14,6 @@ import {
   ChevronDown,
   ChevronUp,
   Snowflake,
-  ArrowDown,
   Sun,
   Cloud,
   CloudSnow,
@@ -62,17 +61,58 @@ function getTempColor(temp: number): string {
   return 'text-orange-400';
 }
 
-function ElevationRow({ data }: { data: ElevationWeather }) {
+/**
+ * Visual mountain card for desktop - shows temps vertically
+ */
+function VisualMountainCard({ data }: { data: ElevationWeather }) {
+  const SummitIcon = conditionIcons[data.summit.condition];
+  const peakName = data.summit.name.replace(' (szczyt)', '').split(' → ').pop() || data.summit.name;
+
+  return (
+    <div className="flex-1 bg-gray-800/70 border border-gray-700/50 rounded-xl p-4 flex flex-col items-center">
+      {/* Summit temp */}
+      <div className={`text-2xl font-bold ${getTempColor(data.summit.temperature)}`}>
+        {data.summit.temperature}°
+      </div>
+      <div className="text-xs text-gray-500">{data.summit.altitude}m</div>
+
+      {/* Mountain visual */}
+      <div className="relative my-2">
+        <Mountain className="w-12 h-12 text-blue-500" />
+        <SummitIcon className="w-4 h-4 text-gray-400 absolute -top-1 -right-1" />
+      </div>
+
+      {/* Valley temp */}
+      <div className="text-xs text-gray-500">{data.valley.altitude}m</div>
+      <div className={`text-lg font-medium ${getTempColor(data.valley.temperature)}`}>
+        {data.valley.temperature}°
+      </div>
+
+      {/* Peak name */}
+      <div className="text-sm text-white font-medium mt-2 text-center leading-tight">
+        {peakName}
+      </div>
+
+      {/* Wind at summit */}
+      <div className="flex items-center gap-1 text-xs text-gray-500 mt-1">
+        <Wind className="w-3 h-3" />
+        <span>{data.summit.windSpeed} km/h</span>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Mobile expandable row
+ */
+function MobileElevationRow({ data }: { data: ElevationWeather }) {
   const [expanded, setExpanded] = useState(false);
   const ValleyIcon = conditionIcons[data.valley.condition];
   const SummitIcon = conditionIcons[data.summit.condition];
-
-  // Extract the peak name (before "→" or "(")
   const peakName = data.summit.name.replace(' (szczyt)', '').split(' → ').pop() || data.summit.name;
 
   return (
     <div className="bg-gray-800/50 rounded-lg overflow-hidden">
-      {/* Compact view */}
       <button
         onClick={() => setExpanded(!expanded)}
         className="w-full p-3 flex items-center justify-between text-left"
@@ -87,21 +127,16 @@ function ElevationRow({ data }: { data: ElevationWeather }) {
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
-          {/* Temperature gradient visualization */}
-          <div className="flex items-center gap-2">
-            <span className={`text-sm font-medium ${getTempColor(data.valley.temperature)}`}>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1">
+            <span className={`text-sm ${getTempColor(data.valley.temperature)}`}>
               {data.valley.temperature}°
             </span>
-            <ArrowDown className="w-3 h-3 text-gray-500 rotate-90" />
+            <span className="text-gray-600">→</span>
             <span className={`text-sm font-bold ${getTempColor(data.summit.temperature)}`}>
               {data.summit.temperature}°
             </span>
-            <span className="text-xs text-gray-500">
-              ({data.tempDifference > 0 ? '+' : ''}{data.tempDifference}°)
-            </span>
           </div>
-
           {expanded ? (
             <ChevronUp className="w-4 h-4 text-gray-500" />
           ) : (
@@ -110,10 +145,8 @@ function ElevationRow({ data }: { data: ElevationWeather }) {
         </div>
       </button>
 
-      {/* Expanded details */}
       {expanded && (
         <div className="px-3 pb-3 pt-0 space-y-3">
-          {/* Valley vs Summit comparison */}
           <div className="grid grid-cols-2 gap-3">
             {/* Valley */}
             <div className="bg-green-900/20 rounded-lg p-2 border border-green-800/30">
@@ -158,7 +191,6 @@ function ElevationRow({ data }: { data: ElevationWeather }) {
             </div>
           </div>
 
-          {/* Additional info row */}
           <div className="flex items-center justify-between text-xs text-gray-400 pt-2 border-t border-gray-700">
             <div className="flex items-center gap-1">
               <Thermometer className="w-3 h-3" />
@@ -195,22 +227,29 @@ export function ElevationWeatherCard({ data, loading }: ElevationWeatherCardProp
   }
 
   return (
-    <div className="bg-mountain-dark rounded-lg p-4">
+    <div className="bg-mountain-dark rounded-lg p-4 pb-2">
       <div className="flex items-center gap-2 mb-3">
         <Thermometer className="w-4 h-4 text-blue-400" />
         <h3 className="text-sm font-medium text-white">Pogoda wg wysokości</h3>
-        <span className="text-xs text-gray-500">({data.length} trasy)</span>
       </div>
 
-      <div className="space-y-2">
+      {/* Desktop: Visual mountain cards in a row */}
+      <div className="hidden md:flex md:gap-4">
         {data.map((elevation, index) => (
-          <ElevationRow key={index} data={elevation} />
+          <VisualMountainCard key={index} data={elevation} />
         ))}
       </div>
 
-      {/* Source */}
+      {/* Mobile: Expandable list */}
+      <div className="md:hidden space-y-2">
+        {data.map((elevation, index) => (
+          <MobileElevationRow key={index} data={elevation} />
+        ))}
+      </div>
+
+      {/* Source - compact */}
       {data[0] && (
-        <div className="mt-3 text-xs text-gray-500 text-right">
+        <div className="mt-2 text-[10px] text-gray-600 text-right">
           {data[0].source} • {new Date(data[0].timestamp).toLocaleTimeString('pl-PL', {
             hour: '2-digit',
             minute: '2-digit',

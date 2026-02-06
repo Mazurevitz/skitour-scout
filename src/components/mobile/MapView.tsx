@@ -10,7 +10,8 @@ import { MapContainer, TileLayer, Marker, Popup, useMap, LayersControl } from 'r
 import L from 'leaflet';
 import { Crosshair, Loader2 } from 'lucide-react';
 import type { EvaluatedRoute } from '@/types';
-import type { CommunityReport } from '@/stores/useReportsStore';
+import type { CommunityReport, VerifiedReport } from '@/stores/useReportsStore';
+import { WeatherAgent } from '@/agents';
 
 // Import Leaflet CSS
 import 'leaflet/dist/leaflet.css';
@@ -27,8 +28,36 @@ interface MapViewProps {
   region: string;
   routes?: EvaluatedRoute[];
   reports?: CommunityReport[];
+  verifiedReports?: VerifiedReport[];
   onRouteSelect?: (routeId: string) => void;
   selectedRouteId?: string | null;
+}
+
+// Geocode location name to coordinates using known locations
+function geocodeLocation(locationName: string, region: string): { lat: number; lng: number } | null {
+  // Get all known locations for all regions
+  const allRegions = ['Beskid Śląski', 'Beskid Żywiecki', 'Tatry'];
+
+  for (const r of [region, ...allRegions.filter(x => x !== region)]) {
+    const locations = WeatherAgent.getLocationsByRegion(r);
+
+    // Try exact match first
+    for (const [name, coords] of Object.entries(locations)) {
+      if (name.toLowerCase() === locationName.toLowerCase()) {
+        return { lat: coords.latitude, lng: coords.longitude };
+      }
+    }
+
+    // Try partial match
+    for (const [name, coords] of Object.entries(locations)) {
+      if (locationName.toLowerCase().includes(name.toLowerCase()) ||
+          name.toLowerCase().includes(locationName.toLowerCase())) {
+        return { lat: coords.latitude, lng: coords.longitude };
+      }
+    }
+  }
+
+  return null;
 }
 
 // Region center coordinates
@@ -93,6 +122,35 @@ function createReportIcon(type: 'ascent' | 'descent'): L.DivIcon {
     `,
     iconSize: [28, 28],
     iconAnchor: [14, 14],
+  });
+}
+
+function createVerifiedReportIcon(safetyRating: number): L.DivIcon {
+  // Color based on safety rating (1=red, 5=green)
+  const colors = ['#ef4444', '#f97316', '#eab308', '#84cc16', '#22c55e'];
+  const color = colors[Math.min(Math.max((safetyRating || 3) - 1, 0), 4)];
+
+  // Person icon SVG
+  const personSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white" width="18" height="18"><circle cx="12" cy="7" r="4"/><path d="M12 14c-4 0-8 2-8 4v2h16v-2c0-2-4-4-8-4z"/></svg>`;
+
+  return L.divIcon({
+    className: 'custom-marker',
+    html: `
+      <div style="
+        width: 30px;
+        height: 30px;
+        background: ${color};
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 2px solid rgba(255,255,255,0.9);
+        box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+        transform: translate(-50%, -50%);
+      ">${personSvg}</div>
+    `,
+    iconSize: [30, 30],
+    iconAnchor: [15, 15],
   });
 }
 
@@ -200,6 +258,7 @@ export function MapView({
   region,
   routes = [],
   reports = [],
+  verifiedReports = [],
   onRouteSelect,
   selectedRouteId,
 }: MapViewProps) {
@@ -207,6 +266,14 @@ export function MapView({
 
   // Filter reports with coordinates
   const reportsWithCoords = reports.filter((r) => r.coordinates);
+
+  // Geocode verified reports
+  const verifiedWithCoords = verifiedReports
+    .map(r => ({
+      ...r,
+      coords: geocodeLocation(r.location, region),
+    }))
+    .filter(r => r.coords !== null);
 
   return (
     <div className="absolute inset-0 z-0">
@@ -329,6 +396,51 @@ export function MapView({
                 <p className="mt-1 text-xs text-gray-400">
                   {new Date(report.timestamp).toLocaleDateString()}
                 </p>
+              </div>
+            </Popup>
+          </Marker>
+        ))}
+
+        {/* Verified FB report markers */}
+        {verifiedWithCoords.map((report) => (
+          <Marker
+            key={report.id}
+            position={[report.coords!.lat, report.coords!.lng]}
+            icon={createVerifiedReportIcon(report.safetyRating)}
+          >
+            <Popup>
+              <div className="p-1">
+                <div className="flex items-center gap-1 mb-1">
+                  <span className="px-2 py-0.5 rounded text-xs font-medium text-white bg-green-600">
+                    ✓ Zweryfikowane
+                  </span>
+                  {report.sourceGroup && (
+                    <span className="text-xs text-gray-500">{report.sourceGroup}</span>
+                  )}
+                </div>
+                <h3 className="font-bold text-sm">{report.location}</h3>
+                {report.snowConditions && (
+                  <p className="text-xs text-gray-600 mt-1">{report.snowConditions}</p>
+                )}
+                {report.hazards.length > 0 && (
+                  <p className="text-xs text-orange-600 mt-1">
+                    ⚠️ {report.hazards.join(', ')}
+                  </p>
+                )}
+                <div className="flex items-center justify-between mt-1">
+                  <span className="text-xs text-gray-500">
+                    {new Date(report.reportDate).toLocaleDateString('pl-PL')}
+                  </span>
+                  <span className={`text-xs font-medium ${
+                    report.safetyRating >= 4 ? 'text-green-600' :
+                    report.safetyRating >= 3 ? 'text-yellow-600' : 'text-red-600'
+                  }`}>
+                    Bezpieczeństwo: {report.safetyRating}/5
+                  </span>
+                </div>
+                {report.authorName && (
+                  <p className="text-xs text-gray-400 mt-1">— {report.authorName}</p>
+                )}
               </div>
             </Popup>
           </Marker>

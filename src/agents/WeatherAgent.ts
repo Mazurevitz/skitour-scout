@@ -298,6 +298,11 @@ export class WeatherAgent extends BaseAgent<WeatherInput, WeatherData> {
       timezone: 'auto',
     });
 
+    // Add elevation to get altitude-corrected temperature
+    if (input.altitude) {
+      params.set('elevation', input.altitude.toString());
+    }
+
     const url = `${WeatherAgent.API_BASE}?${params}`;
     const response = await fetch(url, { signal });
 

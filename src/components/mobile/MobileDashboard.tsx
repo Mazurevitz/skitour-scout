@@ -193,6 +193,7 @@ export function MobileDashboard() {
         region={config.region}
         routes={sortedRoutes}
         reports={recentReports}
+        verifiedReports={verifiedReports}
         onRouteSelect={handleRouteSelect}
         selectedRouteId={selectedRouteId}
       />
