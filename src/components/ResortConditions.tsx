@@ -11,6 +11,10 @@ import { Cable, Thermometer, Snowflake, ExternalLink, ChevronDown, ChevronUp, Ma
 import { fetchResortConditions, getResortConfigs } from '@/services/resortService';
 import type { ResortConditions as ResortConditionsType, ResortConfig } from '@/types/resort';
 
+// Module-level cache to avoid re-fetching on view switches
+const conditionsCache: Record<string, { data: ResortConditionsType[]; timestamp: number }> = {};
+const CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
 interface ResortConditionsProps {
   region: string;
   /** Compact mode for showing in route cards */
@@ -115,10 +119,19 @@ export function ResortConditions({ region, compact, forRoute }: ResortConditions
   useEffect(() => {
     if (relevantConfigs.length === 0) return;
 
+    // Check cache first
+    const cached = conditionsCache[region];
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+      setConditions(cached.data);
+      return;
+    }
+
     const fetchData = async () => {
       setLoading(true);
       try {
         const data = await fetchResortConditions(region);
+        // Store in cache
+        conditionsCache[region] = { data, timestamp: Date.now() };
         setConditions(data);
       } catch (error) {
         console.warn('Failed to fetch resort conditions:', error);
