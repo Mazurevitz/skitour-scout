@@ -24,7 +24,7 @@ import {
   Shield,
   User,
 } from 'lucide-react';
-import { supabase, getEdgeFunctionUrl, getAuthHeaders } from '@/lib/supabase';
+import { supabase, getEdgeFunctionUrl } from '@/lib/supabase';
 
 type Phase = 'input' | 'review' | 'success';
 
@@ -85,7 +85,24 @@ export function AdminReportIngestion() {
         throw new Error('Edge Function URL not configured');
       }
 
-      const headers = await getAuthHeaders();
+      // Get session and verify user is logged in
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+
+      if (sessionError) {
+        throw new Error(`Session error: ${sessionError.message}`);
+      }
+
+      if (!session?.access_token) {
+        throw new Error('Nie jesteś zalogowany. Zaloguj się ponownie.');
+      }
+
+      const headers = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${session.access_token}`,
+      };
+
+      console.log('Calling parse-report with auth token:', session.access_token.substring(0, 20) + '...');
+
       const response = await fetch(edgeFunctionUrl, {
         method: 'POST',
         headers,
