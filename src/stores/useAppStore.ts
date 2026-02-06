@@ -42,6 +42,15 @@ interface SearchStatus {
 }
 
 /**
+ * Error state for user feedback
+ */
+interface AppError {
+  type: 'weather' | 'avalanche' | 'routes' | 'general';
+  message: string;
+  timestamp: string;
+}
+
+/**
  * Application store state
  */
 interface AppState extends DashboardState {
@@ -53,6 +62,8 @@ interface AppState extends DashboardState {
   searchStatus: SearchStatus;
   /** Multi-elevation weather data */
   elevationWeather: ElevationWeather[];
+  /** Error state for user feedback */
+  error: AppError | null;
 }
 
 /**
@@ -65,6 +76,7 @@ interface AppActions {
   searchWeb: (location?: string) => Promise<void>;
   clearData: () => void;
   updateConfig: (config: Partial<AppConfig>) => void;
+  clearError: () => void;
 }
 
 /**
@@ -288,6 +300,7 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
   searchingWeb: false,
   searchStatus: { status: 'idle' },
   elevationWeather: [],
+  error: null,
   ...initialDashboardState,
   config: defaultConfig,
   initialized: false,
@@ -346,7 +359,7 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
       // Fetch orchestrator data and elevation weather in parallel
       const weatherAgent = new WeatherAgent();
 
-      const [result, elevationData] = await Promise.all([
+      const [result, elevationData] = await Promise.allSettled([
         orchestrator.run(
           {
             location: primaryLocation,
@@ -358,17 +371,42 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
         weatherAgent.fetchElevationWeather(config.region),
       ]);
 
-      if (result.success && result.data) {
+      // Handle orchestrator result
+      if (result.status === 'fulfilled' && result.value.success && result.value.data) {
         set({
-          weather: result.data.weather ?? null,
-          avalancheReport: result.data.avalanche ?? null,
-          routes: result.data.routes ?? [],
-          elevationWeather: elevationData,
+          weather: result.value.data.weather ?? null,
+          avalancheReport: result.value.data.avalanche ?? null,
+          routes: result.value.data.routes ?? [],
           lastRefresh: new Date().toISOString(),
+          error: null, // Clear any previous error on success
         });
+      } else if (result.status === 'rejected') {
+        console.error('Orchestrator failed:', result.reason);
+        set({
+          error: {
+            type: 'general',
+            message: 'Nie udało się pobrać danych pogodowych. Sprawdź połączenie.',
+            timestamp: new Date().toISOString(),
+          },
+        });
+      }
+
+      // Handle elevation weather result
+      if (elevationData.status === 'fulfilled') {
+        set({ elevationWeather: elevationData.value });
+      } else {
+        console.error('Elevation weather failed:', elevationData.reason);
+        // Don't overwrite more critical errors
       }
     } catch (error) {
       console.error('Failed to refresh data:', error);
+      set({
+        error: {
+          type: 'general',
+          message: error instanceof Error ? error.message : 'Wystąpił błąd podczas odświeżania',
+          timestamp: new Date().toISOString(),
+        },
+      });
     } finally {
       set({
         loading: {
@@ -497,5 +535,9 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
 
       return { config: updated };
     });
+  },
+
+  clearError: () => {
+    set({ error: null });
   },
 }));

@@ -4,7 +4,7 @@
  * Mobile-first interface with map hero and bottom sheet navigation.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   RefreshCw,
   Settings as SettingsIcon,
@@ -12,6 +12,8 @@ import {
   Mountain,
   Route,
   Radio,
+  AlertTriangle,
+  X,
 } from 'lucide-react';
 import { useAppStore, useReportsStore, type NewReportInput } from '@/stores';
 import { useAuthStore } from '@/stores/useAuthStore';
@@ -54,10 +56,12 @@ export function MobileDashboard() {
     initialized,
     config,
     elevationWeather,
+    error,
     initialize,
     refreshAll,
     searchWeb,
     updateConfig,
+    clearError,
   } = useAppStore();
 
   const {
@@ -67,11 +71,19 @@ export function MobileDashboard() {
     getAdminReportsForRegion,
   } = useReportsStore();
 
-  const { initialize: initAuth } = useAuthStore();
+  const { initialize: initAuth, cleanup: cleanupAuth } = useAuthStore();
 
-  const regionLocations = WeatherAgent.getLocationsByRegion(config.region);
-  const locationNames = Object.keys(regionLocations);
-  const verifiedReports = getAdminReportsForRegion(config.region);
+  // Memoize expensive computations
+  const regionLocations = useMemo(
+    () => WeatherAgent.getLocationsByRegion(config.region),
+    [config.region]
+  );
+  const locationNames = useMemo(() => Object.keys(regionLocations), [regionLocations]);
+
+  const verifiedReports = useMemo(
+    () => getAdminReportsForRegion(config.region),
+    [getAdminReportsForRegion, config.region]
+  );
 
   // Initialize stores
   useEffect(() => {
@@ -80,7 +92,12 @@ export function MobileDashboard() {
     }
     initReports();
     initAuth();
-  }, [initialized, initialize, initReports, initAuth]);
+
+    // Cleanup auth subscription on unmount
+    return () => {
+      cleanupAuth();
+    };
+  }, [initialized, initialize, initReports, initAuth, cleanupAuth]);
 
   // Handle navigation from LoginButton menu
   const handleNavigate = (view: 'dashboard' | 'settings' | 'admin') => {
@@ -94,25 +111,38 @@ export function MobileDashboard() {
   };
 
   const isLoading = loading.weather || loading.avalanche || loading.routes;
-  const sortedRoutes = [...routes].sort((a, b) => b.conditionScore - a.conditionScore);
-  const isTatry = config.region.toLowerCase().includes('tatry');
 
-  // Get recent community reports for current region
-  const recentReports = getRecentReports(48).filter(
-    (r) => r.region.toLowerCase().includes(config.region.toLowerCase()) ||
-      config.region.toLowerCase().includes(r.region.toLowerCase())
+  // Memoize sorted routes to prevent re-sorting on every render
+  const sortedRoutes = useMemo(
+    () => [...routes].sort((a, b) => b.conditionScore - a.conditionScore),
+    [routes]
   );
+
+  const isTatry = useMemo(
+    () => config.region.toLowerCase().includes('tatry'),
+    [config.region]
+  );
+
+  // Get recent community reports for current region - memoized
+  const recentReports = useMemo(() => {
+    const regionLower = config.region.toLowerCase();
+    return getRecentReports(48).filter(
+      (r) => r.region.toLowerCase().includes(regionLower) ||
+        regionLower.includes(r.region.toLowerCase())
+    );
+  }, [getRecentReports, config.region]);
+
   const recentReportsCount = recentReports.length;
 
-  const handleReportSubmit = async (report: NewReportInput) => {
+  const handleReportSubmit = useCallback(async (report: NewReportInput) => {
     await addReport(report);
-  };
+  }, [addReport]);
 
-  const handleRouteSelect = (routeId: string) => {
+  const handleRouteSelect = useCallback((routeId: string) => {
     setSelectedRouteId(routeId);
     setActiveView('routes');
     setSheetSnap(2); // Expand sheet
-  };
+  }, []);
 
   // Bottom sheet header with region picker and nav
   const sheetHeader = (
@@ -188,6 +218,23 @@ export function MobileDashboard() {
 
   return (
     <div className="h-full bg-gray-900 relative">
+      {/* Error Banner */}
+      {error && (
+        <div className="fixed top-0 left-0 right-0 z-50 p-3 bg-red-900/95 border-b border-red-700 flex items-center justify-between gap-3 animate-in slide-in-from-top duration-300">
+          <div className="flex items-center gap-2 text-red-100">
+            <AlertTriangle className="w-5 h-5 flex-shrink-0" />
+            <span className="text-sm">{error.message}</span>
+          </div>
+          <button
+            onClick={clearError}
+            className="p-1.5 hover:bg-red-800 rounded-lg transition-colors"
+            aria-label="Zamknij"
+          >
+            <X className="w-4 h-4 text-red-200" />
+          </button>
+        </div>
+      )}
+
       {/* Map background */}
       <MapView
         region={config.region}

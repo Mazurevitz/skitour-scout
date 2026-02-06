@@ -17,10 +17,9 @@ Last updated: 2026-02-06
 ## High Priority Improvements
 
 ### Performance
-- [ ] **Missing memoization in MobileDashboard.tsx**
-  - Line 97: `sortedRoutes` recomputed every render
-  - Line 74: `verifiedReports` not memoized
-  - Line 101-104: `recentReports` filter recreates array constantly
+- [x] **Missing memoization in MobileDashboard.tsx** - Fixed with useMemo/useCallback
+  - sortedRoutes, verifiedReports, recentReports now memoized
+  - Callbacks memoized with useCallback
 
 ### Offline Support
 - [ ] Add offline indicator UI
@@ -29,7 +28,7 @@ Last updated: 2026-02-06
 - [ ] Two-way sync (currently one-way only)
 
 ### Error Handling
-- [ ] Show user feedback for weather/avalanche failures (currently silent)
+- [x] Show user feedback for weather/avalanche failures - Added error banner in MobileDashboard
 - [ ] Add error boundaries for async operations
 - [ ] Improve error messages in search failures
 
@@ -89,4 +88,6 @@ Last updated: 2026-02-06
 - **2026-02-06**: Fixed memory leak in auth listener (`useAuthStore.ts`) - stores subscription reference and provides `cleanup()` function
 - **2026-02-06**: Fixed OAuth redirect vulnerability - validates origin against allowed list before redirect
 - **2026-02-06**: Fixed RLS policy gap - new migration prevents users from updating their own `is_admin` field
+- **2026-02-06**: Added memoization to MobileDashboard - `useMemo` for computed values, `useCallback` for handlers
+- **2026-02-06**: Added error feedback UI - error state in store, dismissible error banner in dashboard
 
