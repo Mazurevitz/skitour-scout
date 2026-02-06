@@ -121,6 +121,7 @@ export function MobileDashboard() {
           value={config.region}
           onChange={(e) => {
             updateConfig({ region: e.target.value });
+            setSelectedRouteId(null); // Clear selected route when region changes
             refreshAll();
           }}
           className="bg-gray-800 text-white text-sm font-medium rounded-lg px-3 py-2 border border-gray-700 focus:outline-none focus:border-blue-500 min-h-[44px]"
@@ -275,7 +276,7 @@ export function MobileDashboard() {
           {/* Routes View */}
           {activeView === 'routes' && (
             <div className="space-y-3">
-              {selectedRouteId ? (
+              {selectedRouteId && sortedRoutes.find((r) => r.id === selectedRouteId) ? (
                 <>
                   <button
                     onClick={() => setSelectedRouteId(null)}
