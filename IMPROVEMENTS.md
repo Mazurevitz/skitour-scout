@@ -30,7 +30,7 @@ Last updated: 2026-02-06
 ### Error Handling
 - [x] Show user feedback for weather/avalanche failures - Added error banner in MobileDashboard
 - [x] Add error boundaries for async operations - Improved App.tsx error boundary with Polish UI
-- [ ] Improve error messages in search failures
+- [x] Improve error messages in search failures - Polish messages for timeout, network, rate limit errors
 
 ### Database Performance
 - [ ] Add pagination for reports query (`useReportsStore.ts:310` fetches 200 every sync)
@@ -94,4 +94,5 @@ Last updated: 2026-02-06
 - **2026-02-06**: Added retry queue service - `retryQueue.ts` persists failed operations to IndexedDB, auto-retries when online
 - **2026-02-06**: Improved error boundary - Polish UI with retry/reload options, better error display
 - **2026-02-06**: Added pending operations indicator - shows sync status for queued operations
+- **2026-02-06**: Improved search error messages - categorized errors with helpful Polish messages
 

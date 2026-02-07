@@ -493,20 +493,46 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
           });
         }
       } else {
+        // Provide more helpful Polish error messages
+        let errorMessage = 'Wyszukiwanie nie powiodło się';
+        if (result.error) {
+          if (result.error.includes('timeout') || result.error.includes('Timeout')) {
+            errorMessage = 'Przekroczono limit czasu wyszukiwania. Spróbuj ponownie.';
+          } else if (result.error.includes('network') || result.error.includes('fetch')) {
+            errorMessage = 'Błąd połączenia. Sprawdź internet i spróbuj ponownie.';
+          } else if (result.error.includes('rate') || result.error.includes('limit')) {
+            errorMessage = 'Zbyt wiele zapytań. Poczekaj chwilę i spróbuj ponownie.';
+          }
+        }
         set({
           searchStatus: {
             status: 'error',
-            message: result.error || 'Search failed',
+            message: errorMessage,
             timestamp: new Date().toISOString(),
           },
         });
       }
     } catch (error) {
       console.error('Web search failed:', error);
+
+      // Categorize errors for better user feedback
+      let errorMessage = 'Wystąpił nieoczekiwany błąd wyszukiwania';
+      if (error instanceof Error) {
+        if (!navigator.onLine) {
+          errorMessage = 'Brak połączenia z internetem. Połącz się i spróbuj ponownie.';
+        } else if (error.message.includes('Failed to fetch') || error.message.includes('NetworkError')) {
+          errorMessage = 'Nie można połączyć się z serwerem wyszukiwania.';
+        } else if (error.message.includes('timeout') || error.message.includes('Timeout')) {
+          errorMessage = 'Wyszukiwanie trwało zbyt długo. Spróbuj ponownie.';
+        } else if (error.message.includes('abort') || error.message.includes('Abort')) {
+          errorMessage = 'Wyszukiwanie zostało przerwane.';
+        }
+      }
+
       set({
         searchStatus: {
           status: 'error',
-          message: error instanceof Error ? error.message : 'Search failed unexpectedly',
+          message: errorMessage,
           timestamp: new Date().toISOString(),
         },
       });
