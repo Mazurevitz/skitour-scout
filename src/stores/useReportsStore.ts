@@ -9,6 +9,7 @@
 
 import { create } from 'zustand';
 import { supabase, isSupabaseConfigured, getEdgeFunctionUrl, getAuthHeaders, Report, AdminReport } from '../lib/supabase';
+import { queueOperation, getPendingCount } from '../services/retryQueue';
 
 /**
  * Report type: Ascent or Descent
@@ -153,12 +154,15 @@ interface ReportsState {
   isLoading: boolean;
   lastSync: string | null;
   error: ReportError | null;
+  /** Number of operations pending retry */
+  pendingOperations: number;
 
   // Actions
   initialize: () => Promise<void>;
   addReport: (report: NewReportInput) => Promise<void>;
   deleteReport: (id: string) => Promise<void>;
   syncWithSupabase: () => Promise<void>;
+  refreshPendingCount: () => Promise<void>;
   getReportsForRegion: (region: string) => CommunityReport[];
   getReportsForLocation: (location: string) => CommunityReport[];
   getReportsWithCoordinates: () => CommunityReport[];
@@ -260,6 +264,7 @@ export const useReportsStore = create<ReportsState>((set, get) => ({
   isLoading: false,
   lastSync: null,
   error: null,
+  pendingOperations: 0,
 
   initialize: async () => {
     set({ isLoading: true, error: null });
@@ -288,6 +293,9 @@ export const useReportsStore = create<ReportsState>((set, get) => ({
       if (isSupabaseConfigured()) {
         await get().syncWithSupabase();
       }
+
+      // Refresh pending operations count
+      await get().refreshPendingCount();
 
       set({ isLoading: false, lastSync: new Date().toISOString() });
     } catch (error) {
@@ -372,6 +380,15 @@ export const useReportsStore = create<ReportsState>((set, get) => ({
       }
     } catch (error) {
       console.error('Failed to sync with Supabase:', error);
+    }
+  },
+
+  refreshPendingCount: async () => {
+    try {
+      const count = await getPendingCount();
+      set({ pendingOperations: count });
+    } catch (error) {
+      console.error('Failed to get pending count:', error);
     }
   },
 
@@ -472,6 +489,21 @@ export const useReportsStore = create<ReportsState>((set, get) => ({
           throw error;
         }
         console.error('Supabase submission failed:', error);
+
+        // Check if it's a network error - queue for retry
+        const isNetworkError = !navigator.onLine ||
+          (error instanceof Error && (
+            error.message.includes('fetch') ||
+            error.message.includes('network') ||
+            error.message.includes('Failed to fetch')
+          ));
+
+        if (isNetworkError) {
+          // Queue for retry when back online
+          await queueOperation('add_report', reportInput);
+          await get().refreshPendingCount();
+        }
+
         // Fall through to local-only submission
       }
     }

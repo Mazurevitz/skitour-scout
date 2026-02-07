@@ -15,6 +15,7 @@ import {
   AlertTriangle,
   X,
   WifiOff,
+  CloudOff,
 } from 'lucide-react';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
 import { useAppStore, useReportsStore, type NewReportInput } from '@/stores';
@@ -71,6 +72,7 @@ export function MobileDashboard() {
     addReport,
     getRecentReports,
     getAdminReportsForRegion,
+    pendingOperations,
   } = useReportsStore();
 
   const { initialize: initAuth, cleanup: cleanupAuth } = useAuthStore();
@@ -225,8 +227,25 @@ export function MobileDashboard() {
       {!isOnline && (
         <div className="fixed top-0 left-0 right-0 z-50 p-3 bg-amber-900/95 border-b border-amber-700 flex items-center gap-3">
           <WifiOff className="w-5 h-5 text-amber-200 flex-shrink-0" />
-          <span className="text-sm text-amber-100">
-            Brak połączenia z internetem. Wyświetlane są dane z pamięci podręcznej.
+          <div className="flex-1">
+            <span className="text-sm text-amber-100">
+              Brak połączenia z internetem. Wyświetlane są dane z pamięci podręcznej.
+            </span>
+            {pendingOperations > 0 && (
+              <span className="text-xs text-amber-300 block mt-0.5">
+                {pendingOperations} {pendingOperations === 1 ? 'operacja oczekuje' : 'operacji oczekuje'} na synchronizację.
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Pending Operations Badge (when online but have pending) */}
+      {isOnline && pendingOperations > 0 && (
+        <div className="fixed top-0 left-0 right-0 z-50 p-2 bg-blue-900/95 border-b border-blue-700 flex items-center justify-center gap-2">
+          <CloudOff className="w-4 h-4 text-blue-300" />
+          <span className="text-xs text-blue-200">
+            Synchronizacja {pendingOperations} {pendingOperations === 1 ? 'oczekującej operacji' : 'oczekujących operacji'}...
           </span>
         </div>
       )}

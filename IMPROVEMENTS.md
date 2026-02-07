@@ -23,13 +23,13 @@ Last updated: 2026-02-06
 
 ### Offline Support
 - [x] Add offline indicator UI - Added offline banner with useOnlineStatus hook
-- [ ] Implement retry queue for failed operations
+- [x] Implement retry queue for failed operations - `retryQueue.ts` service with IndexedDB persistence
 - [ ] Add conflict resolution strategy for sync
 - [ ] Two-way sync (currently one-way only)
 
 ### Error Handling
 - [x] Show user feedback for weather/avalanche failures - Added error banner in MobileDashboard
-- [ ] Add error boundaries for async operations
+- [x] Add error boundaries for async operations - Improved App.tsx error boundary with Polish UI
 - [ ] Improve error messages in search failures
 
 ### Database Performance
@@ -91,4 +91,7 @@ Last updated: 2026-02-06
 - **2026-02-06**: Added memoization to MobileDashboard - `useMemo` for computed values, `useCallback` for handlers
 - **2026-02-06**: Added error feedback UI - error state in store, dismissible error banner in dashboard
 - **2026-02-06**: Added offline indicator - `useOnlineStatus` hook detects connectivity, shows amber banner when offline
+- **2026-02-06**: Added retry queue service - `retryQueue.ts` persists failed operations to IndexedDB, auto-retries when online
+- **2026-02-06**: Improved error boundary - Polish UI with retry/reload options, better error display
+- **2026-02-06**: Added pending operations indicator - shows sync status for queued operations
 
