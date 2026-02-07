@@ -24,8 +24,8 @@ Last updated: 2026-02-06
 ### Offline Support
 - [x] Add offline indicator UI - Added offline banner with useOnlineStatus hook
 - [x] Implement retry queue for failed operations - `retryQueue.ts` service with IndexedDB persistence
-- [ ] Add conflict resolution strategy for sync
-- [ ] Two-way sync (currently one-way only)
+- [x] Add conflict resolution strategy for sync - Last-write-wins based on timestamp
+- [x] Two-way sync - Local unsynced reports pushed to Supabase during sync
 
 ### Error Handling
 - [x] Show user feedback for weather/avalanche failures - Added error banner in MobileDashboard
@@ -95,4 +95,5 @@ Last updated: 2026-02-06
 - **2026-02-06**: Improved error boundary - Polish UI with retry/reload options, better error display
 - **2026-02-06**: Added pending operations indicator - shows sync status for queued operations
 - **2026-02-06**: Improved search error messages - categorized errors with helpful Polish messages
+- **2026-02-06**: Added two-way sync with conflict resolution - pushes local unsynced reports to Supabase, uses last-write-wins
 

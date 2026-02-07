@@ -8,7 +8,7 @@
  */
 
 import { create } from 'zustand';
-import { supabase, isSupabaseConfigured, getEdgeFunctionUrl, getAuthHeaders, Report, AdminReport } from '../lib/supabase';
+import { supabase, isSupabaseConfigured, getEdgeFunctionUrl, getAuthHeaders, Report, AdminReport, ReportInsert } from '../lib/supabase';
 import { queueOperation, getPendingCount } from '../services/retryQueue';
 
 /**
@@ -337,16 +337,104 @@ export const useReportsStore = create<ReportsState>((set, get) => ({
 
       if (supabaseReports) {
         const serverReports = supabaseReports.map((r: Report) => fromSupabaseReport(r, user?.id));
-
-        // Merge with local reports (keep local non-synced ones)
         const { reports: localReports } = get();
-        const localOnlyReports = localReports.filter(r => !r.synced);
 
-        // Combine and deduplicate
-        const allReports = [...serverReports, ...localOnlyReports]
-          .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+        // === TWO-WAY SYNC WITH CONFLICT RESOLUTION ===
 
-        // Update IndexedDB with synced reports
+        // 1. Build maps for efficient lookup
+        const serverReportMap = new Map(serverReports.map(r => [r.id, r]));
+        const localReportMap = new Map(localReports.map(r => [r.id, r]));
+
+        // 2. Find local unsynced reports to push to server
+        const localUnsyncedReports = localReports.filter(r => !r.synced && user);
+
+        // 3. Push unsynced local reports to Supabase
+        for (const localReport of localUnsyncedReports) {
+          try {
+            // Build the report data for Supabase insert
+            const insertData: ReportInsert = {
+              user_id: user!.id,
+              type: localReport.type,
+              location: localReport.location,
+              region: localReport.region,
+              coordinates: localReport.coordinates,
+              notes: localReport.notes,
+            };
+
+            // Add type-specific fields
+            if (localReport.type === 'ascent' && localReport.ascent) {
+              insertData.track_status = localReport.ascent.trackStatus;
+              insertData.gear_needed = localReport.ascent.gearNeeded;
+            } else if (localReport.type === 'descent' && localReport.descent) {
+              insertData.snow_condition = localReport.descent.snowCondition;
+              insertData.quality_rating = localReport.descent.qualityRating;
+            }
+
+            // Insert to Supabase (type assertion needed due to generated types)
+            const { data: insertedReport, error: insertError } = await supabase
+              .from('reports')
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              .insert(insertData as any)
+              .select()
+              .single();
+
+            if (!insertError && insertedReport) {
+              // Update local report with server ID and mark as synced
+              const syncedReport = { ...localReport };
+              syncedReport.id = (insertedReport as Report).id;
+              syncedReport.synced = true;
+              syncedReport.userId = user!.id;
+              serverReportMap.set(syncedReport.id, syncedReport);
+              // Update in local map too
+              localReportMap.set(syncedReport.id, syncedReport);
+              // Remove old local ID
+              localReportMap.delete(localReport.id);
+            }
+          } catch (err) {
+            console.warn('Failed to sync local report to server:', err);
+            // Keep as unsynced for next attempt
+          }
+        }
+
+        // 4. Merge with conflict resolution (last-write-wins)
+        const mergedReports: CommunityReport[] = [];
+        const seenIds = new Set<string>();
+
+        // Process all unique IDs from both sources
+        const allIds = new Set([...serverReportMap.keys(), ...localReportMap.keys()]);
+
+        for (const id of allIds) {
+          if (seenIds.has(id)) continue;
+          seenIds.add(id);
+
+          const serverReport = serverReportMap.get(id);
+          const localReport = localReportMap.get(id);
+
+          if (serverReport && localReport) {
+            // Conflict: both exist - use last-write-wins based on timestamp
+            const serverTime = new Date(serverReport.timestamp).getTime();
+            const localTime = new Date(localReport.timestamp).getTime();
+
+            if (localTime > serverTime && !localReport.synced) {
+              // Local is newer and unsynced - keep local (will sync next time)
+              mergedReports.push(localReport);
+            } else {
+              // Server is newer or same - use server version
+              mergedReports.push(serverReport);
+            }
+          } else if (serverReport) {
+            mergedReports.push(serverReport);
+          } else if (localReport) {
+            mergedReports.push(localReport);
+          }
+        }
+
+        // Sort by timestamp descending
+        const allReports = mergedReports.sort(
+          (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+        );
+
+        // Update IndexedDB with merged reports
         const db = await openDB();
         const tx = db.transaction(STORE_NAME, 'readwrite');
         const store = tx.objectStore(STORE_NAME);
