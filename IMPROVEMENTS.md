@@ -47,14 +47,14 @@ Last updated: 2026-02-06
 - [ ] Remove duplicated report conversion logic in `useReportsStore.ts`
 
 ### Missing Features
-- [ ] Remove or fix Facebook OAuth (currently disabled)
+- [x] Remove or fix Facebook OAuth - Removed disabled button, keeping Google only for now
 - [ ] Integrate admin report moderation UI
 - [ ] Add search/filter for reports by date or type
 - [ ] Add report sharing functionality
 
 ### UX/Accessibility
-- [ ] Fix color contrast issues in `CommunityIntel.tsx`
-- [ ] Add ARIA labels on interactive elements
+- [x] Fix color contrast issues in `CommunityIntel.tsx` - Improved text colors (gray-300/400 instead of 500)
+- [x] Add ARIA labels on interactive elements - Added to ratings, buttons, articles
 - [ ] Add haptic feedback for gestures
 - [ ] Consistent loading skeletons across views
 
@@ -96,4 +96,7 @@ Last updated: 2026-02-06
 - **2026-02-06**: Added pending operations indicator - shows sync status for queued operations
 - **2026-02-06**: Improved search error messages - categorized errors with helpful Polish messages
 - **2026-02-06**: Added two-way sync with conflict resolution - pushes local unsynced reports to Supabase, uses last-write-wins
+- **2026-02-06**: Improved color contrast in CommunityIntel - text now meets WCAG AA standards
+- **2026-02-06**: Added ARIA labels - ratings, report cards, buttons now accessible
+- **2026-02-06**: Removed disabled Facebook OAuth button - cleaner auth UI
 

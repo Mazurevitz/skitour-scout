@@ -55,13 +55,14 @@ function ConditionBadge({ condition, type }: { condition: string; type: 'snow' |
 
 function RatingStars({ rating }: { rating: number }) {
   return (
-    <div className="flex items-center gap-0.5">
+    <div className="flex items-center gap-0.5" role="img" aria-label={`Ocena: ${rating} z 5 gwiazdek`}>
       {[1, 2, 3, 4, 5].map((star) => (
         <Star
           key={star}
           className={`w-3 h-3 ${
-            star <= rating ? 'text-yellow-400 fill-yellow-400' : 'text-gray-600'
+            star <= rating ? 'text-yellow-400 fill-yellow-400' : 'text-gray-500'
           }`}
+          aria-hidden="true"
         />
       ))}
     </div>
@@ -89,7 +90,7 @@ function LocationSummaryCard({ summary }: { summary: LocationConditions }) {
         )}
       </div>
 
-      <div className="flex items-center gap-4 text-sm text-gray-400">
+      <div className="flex items-center gap-4 text-sm text-gray-300">
         {summary.averageRating > 0 && (
           <div className="flex items-center gap-1">
             <RatingStars rating={Math.round(summary.averageRating)} />
@@ -97,7 +98,7 @@ function LocationSummaryCard({ summary }: { summary: LocationConditions }) {
           </div>
         )}
         <div className="flex items-center gap-1">
-          <Users className="w-3 h-3" />
+          <Users className="w-3 h-3" aria-hidden="true" />
           <span>{summary.reportCount} raportów</span>
         </div>
       </div>
@@ -169,11 +170,14 @@ function ReportCard({ report }: { report: CommunityReport }) {
   const isAscent = report.type === 'ascent';
 
   return (
-    <div className={`bg-gray-800/30 rounded-lg p-3 border-l-4 ${
-      report.isOwn
-        ? isAscent ? 'border-l-green-500 border-green-500/30' : 'border-l-blue-500 border-blue-500/30'
-        : 'border-l-emerald-500 border-gray-700/30'
-    }`}>
+    <article
+      className={`bg-gray-800/30 rounded-lg p-3 border-l-4 ${
+        report.isOwn
+          ? isAscent ? 'border-l-green-500 border-green-500/30' : 'border-l-blue-500 border-blue-500/30'
+          : 'border-l-emerald-500 border-gray-700/30'
+      }`}
+      aria-label={`Raport ${isAscent ? 'podejścia' : 'zjazdu'} z ${report.location}`}
+    >
       {/* Human report badge */}
       <div className="flex items-center gap-1.5 mb-2">
         <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
@@ -203,10 +207,10 @@ function ReportCard({ report }: { report: CommunityReport }) {
       </div>
 
       <div className="flex items-center gap-2 text-sm mb-2">
-        <MapPin className="w-3 h-3 text-gray-500" />
-        <span className="text-gray-300">{report.location}</span>
-        <span className="text-gray-600">•</span>
-        <span className="text-gray-500">{timeAgo}</span>
+        <MapPin className="w-3 h-3 text-gray-400" aria-hidden="true" />
+        <span className="text-gray-200">{report.location}</span>
+        <span className="text-gray-500" aria-hidden="true">•</span>
+        <time className="text-gray-400" dateTime={report.timestamp}>{timeAgo}</time>
       </div>
 
       {/* Ascent details */}
@@ -241,9 +245,9 @@ function ReportCard({ report }: { report: CommunityReport }) {
       )}
 
       {report.notes && (
-        <p className="mt-2 text-sm text-gray-400 line-clamp-2 italic">"{report.notes}"</p>
+        <p className="mt-2 text-sm text-gray-300 line-clamp-2 italic">"{report.notes}"</p>
       )}
-    </div>
+    </article>
   );
 }
 
