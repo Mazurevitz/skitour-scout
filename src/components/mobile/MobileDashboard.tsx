@@ -421,6 +421,7 @@ export function MobileDashboard() {
         onClose={() => setShowQuickReport(false)}
         onSubmit={handleReportSubmit}
         currentRegion={config.region}
+        elevationWeather={elevationWeather}
       />
     </div>
   );

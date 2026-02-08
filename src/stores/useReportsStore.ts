@@ -10,6 +10,11 @@
 import { create } from 'zustand';
 import { supabase, isSupabaseConfigured, getEdgeFunctionUrl, getAuthHeaders, Report, AdminReport, ReportInsert } from '../lib/supabase';
 import { queueOperation, getPendingCount } from '../services/retryQueue';
+import type { WeatherSnapshot, RelevanceFactors, ElevationWeather } from '../types';
+import {
+  calculateRelevanceScore,
+  calculateBaseRelevanceScore,
+} from '../utils/relevanceScore';
 
 /**
  * Report type: Ascent or Descent
@@ -74,6 +79,12 @@ export interface CommunityReport {
   userId?: string;
   /** Synced to Supabase */
   synced?: boolean;
+  /** Weather conditions at time of report submission */
+  weatherSnapshot?: WeatherSnapshot;
+  /** Calculated relevance score (0-100) */
+  relevanceScore?: number;
+  /** Breakdown of relevance factors */
+  relevanceFactors?: RelevanceFactors;
 
   // Legacy fields for backwards compatibility
   /** @deprecated Use descent.snowCondition instead */
@@ -97,6 +108,10 @@ export interface LocationConditions {
   trackStatus?: TrackStatus;
   commonGear: AscentGear[];
   hazards: string[];
+  /** Average relevance score of reports at this location */
+  averageRelevance: number;
+  /** The most relevant report at this location */
+  mostRelevantReport?: CommunityReport;
 }
 
 /**
@@ -108,6 +123,8 @@ export type NewReportInput = {
   region: string;
   notes?: string;
   coordinates?: { lat: number; lng: number };
+  /** Weather snapshot at time of submission */
+  weatherSnapshot?: WeatherSnapshot;
 } & (
   | { type: 'ascent'; ascent: AscentData }
   | { type: 'descent'; descent: DescentData }
@@ -163,6 +180,7 @@ interface ReportsState {
   deleteReport: (id: string) => Promise<void>;
   syncWithSupabase: () => Promise<void>;
   refreshPendingCount: () => Promise<void>;
+  calculateAllRelevance: (currentWeather: ElevationWeather | undefined) => void;
   getReportsForRegion: (region: string) => CommunityReport[];
   getReportsForLocation: (location: string) => CommunityReport[];
   getReportsWithCoordinates: () => CommunityReport[];
@@ -480,6 +498,51 @@ export const useReportsStore = create<ReportsState>((set, get) => ({
     }
   },
 
+  calculateAllRelevance: (currentWeather: ElevationWeather | undefined) => {
+    const { reports } = get();
+
+    // Group reports by location for consistency calculation
+    const byLocation = new Map<string, CommunityReport[]>();
+    for (const report of reports) {
+      const existing = byLocation.get(report.location) || [];
+      existing.push(report);
+      byLocation.set(report.location, existing);
+    }
+
+    // Calculate relevance for each report
+    const updatedReports = reports.map((report) => {
+      const locationReports = byLocation.get(report.location) || [];
+      // Count similar reports in last 24h
+      const cutoff24h = Date.now() - 24 * 60 * 60 * 1000;
+      const similarReportCount = locationReports.filter(
+        (r) => new Date(r.timestamp).getTime() > cutoff24h
+      ).length;
+
+      let relevanceFactors: RelevanceFactors;
+
+      if (report.weatherSnapshot) {
+        // Full calculation with weather snapshot
+        relevanceFactors = calculateRelevanceScore(
+          report.timestamp,
+          report.weatherSnapshot,
+          currentWeather,
+          similarReportCount
+        );
+      } else {
+        // Base calculation for reports without weather data
+        relevanceFactors = calculateBaseRelevanceScore(report.timestamp);
+      }
+
+      return {
+        ...report,
+        relevanceScore: relevanceFactors.finalScore,
+        relevanceFactors,
+      };
+    });
+
+    set({ reports: updatedReports });
+  },
+
   addReport: async (reportInput) => {
     set({ error: null });
 
@@ -769,6 +832,18 @@ export const useReportsStore = create<ReportsState>((set, get) => ({
         }
       }
 
+      // Calculate average relevance and find most relevant report
+      const relevanceScores = reports
+        .map((r) => r.relevanceScore)
+        .filter((s): s is number => s !== undefined);
+      const averageRelevance = relevanceScores.length > 0
+        ? Math.round(relevanceScores.reduce((sum, s) => sum + s, 0) / relevanceScores.length)
+        : 0;
+
+      const mostRelevantReport = [...reports]
+        .filter((r) => r.relevanceScore !== undefined)
+        .sort((a, b) => (b.relevanceScore || 0) - (a.relevanceScore || 0))[0];
+
       aggregated.push({
         location,
         region: reports[0].region,
@@ -781,6 +856,8 @@ export const useReportsStore = create<ReportsState>((set, get) => ({
         trackStatus,
         commonGear,
         hazards,
+        averageRelevance,
+        mostRelevantReport,
       });
     }
 

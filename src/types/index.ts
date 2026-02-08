@@ -323,3 +323,48 @@ export interface CacheEntry<T> {
   /** Cache key */
   key: string;
 }
+
+/**
+ * Weather snapshot captured at report submission
+ */
+export interface WeatherSnapshot {
+  /** Temperature in Celsius */
+  temperature: number;
+  /** Wind speed in km/h */
+  windSpeed: number;
+  /** Fresh snow in last 24h (cm) */
+  freshSnow24h: number;
+  /** Snow base depth (cm) */
+  snowBase: number;
+  /** Freezing level in meters */
+  freezingLevel: number;
+  /** Weather condition at time of report */
+  condition: WeatherCondition;
+  /** When the snapshot was captured */
+  capturedAt: string;
+}
+
+/**
+ * Breakdown of relevance factors for a report
+ */
+export interface RelevanceFactors {
+  /** Age penalty: 0-40 points deducted */
+  agePenalty: number;
+  /** Temperature change penalty: 0-15 points */
+  temperaturePenalty: number;
+  /** Fresh snow delta: -10 to +10 points (bonus for new snow) */
+  freshSnowDelta: number;
+  /** Freezing level change penalty: 0-10 points */
+  freezingLevelPenalty: number;
+  /** Weather event penalty (rain, wind): 0-20 points */
+  weatherEventPenalty: number;
+  /** Consistency bonus for similar reports: 0-5 points */
+  consistencyBonus: number;
+  /** Final calculated score: 0-100 */
+  finalScore: number;
+}
+
+/**
+ * Relevance tier for display purposes
+ */
+export type RelevanceTier = 'excellent' | 'good' | 'fair' | 'stale' | 'outdated';

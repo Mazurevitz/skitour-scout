@@ -22,6 +22,7 @@ import {
   type ConditionReport,
 } from '@/agents';
 import { isSupabaseConfigured } from '@/lib/supabase';
+import { useReportsStore } from './useReportsStore';
 
 /**
  * Simplified app configuration (LLM config moved to server-side)
@@ -394,6 +395,10 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
       // Handle elevation weather result
       if (elevationData.status === 'fulfilled') {
         set({ elevationWeather: elevationData.value });
+
+        // Recalculate relevance scores with new weather data
+        const currentWeather = elevationData.value[0];
+        useReportsStore.getState().calculateAllRelevance(currentWeather);
       } else {
         console.error('Elevation weather failed:', elevationData.reason);
         // Don't overwrite more critical errors

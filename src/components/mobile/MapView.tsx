@@ -89,11 +89,11 @@ function createScoreIcon(score: number, isSelected: boolean): L.DivIcon {
         font-size: ${isSelected ? '14px' : '12px'};
         border: ${border};
         box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-        transform: translate(-50%, -50%);
       ">${score}</div>
     `,
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
+    popupAnchor: [0, -size / 2],
   });
 }
 
@@ -117,11 +117,11 @@ function createReportIcon(type: 'ascent' | 'descent'): L.DivIcon {
         font-size: 16px;
         border: 2px solid rgba(255,255,255,0.7);
         box-shadow: 0 2px 6px rgba(0,0,0,0.3);
-        transform: translate(-50%, -50%);
       ">${arrow}</div>
     `,
     iconSize: [28, 28],
     iconAnchor: [14, 14],
+    popupAnchor: [0, -14],
   });
 }
 
@@ -146,11 +146,11 @@ function createVerifiedReportIcon(safetyRating: number): L.DivIcon {
         justify-content: center;
         border: 2px solid rgba(255,255,255,0.9);
         box-shadow: 0 2px 6px rgba(0,0,0,0.4);
-        transform: translate(-50%, -50%);
       ">${personSvg}</div>
     `,
     iconSize: [30, 30],
     iconAnchor: [15, 15],
+    popupAnchor: [0, -15],
   });
 }
 

@@ -20,6 +20,9 @@ import { useAuthStore } from '@/stores/useAuthStore';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { AuthModal } from '../auth/AuthModal';
 import { t } from '@/lib/translations';
+import { hapticButton, hapticGesture, hapticSuccess, hapticError } from '@/utils/haptics';
+import type { ElevationWeather } from '@/types';
+import { createWeatherSnapshot } from '@/utils/relevanceScore';
 
 // Track status options for ascent
 const TRACK_STATUS_OPTIONS: { id: TrackStatus; label: string; emoji: string }[] = [
@@ -56,9 +59,11 @@ interface QuickReportProps {
   onClose: () => void;
   onSubmit: (report: NewReportInput) => void;
   currentRegion: string;
+  /** Current elevation weather for capturing snapshot */
+  elevationWeather?: ElevationWeather[];
 }
 
-export function QuickReport({ isOpen, onClose, onSubmit, currentRegion }: QuickReportProps) {
+export function QuickReport({ isOpen, onClose, onSubmit, currentRegion, elevationWeather }: QuickReportProps) {
   const [reportType, setReportType] = useState<ReportType>('descent');
   const [location, setLocation] = useState<string>('');
   const [notes, setNotes] = useState('');
@@ -102,6 +107,7 @@ export function QuickReport({ isOpen, onClose, onSubmit, currentRegion }: QuickR
 
   const handleTouchEnd = () => {
     if (dragOffset > 100) {
+      hapticGesture();
       onClose();
     }
     setDragOffset(0);
@@ -157,11 +163,17 @@ export function QuickReport({ isOpen, onClose, onSubmit, currentRegion }: QuickR
     setIsSubmitting(true);
     clearError();
 
+    // Capture weather snapshot if available
+    const weatherSnapshot = elevationWeather?.[0]
+      ? createWeatherSnapshot(elevationWeather[0])
+      : undefined;
+
     const baseReport = {
       location,
       region: currentRegion,
       notes: notes.trim() || undefined,
       coordinates: gpsCoords || undefined,
+      weatherSnapshot,
     };
 
     let report: NewReportInput;
@@ -188,6 +200,7 @@ export function QuickReport({ isOpen, onClose, onSubmit, currentRegion }: QuickR
 
     try {
       await onSubmit(report);
+      hapticSuccess();
       setIsSubmitting(false);
 
       // Reset form
@@ -201,6 +214,7 @@ export function QuickReport({ isOpen, onClose, onSubmit, currentRegion }: QuickR
       onClose();
     } catch {
       // Error is handled by the store
+      hapticError();
       setIsSubmitting(false);
     }
   };
@@ -302,7 +316,7 @@ export function QuickReport({ isOpen, onClose, onSubmit, currentRegion }: QuickR
         <div className="px-4 pt-2">
           <div className="flex bg-gray-800 rounded-xl p-1">
             <button
-              onClick={() => setReportType('ascent')}
+              onClick={() => { hapticButton(); setReportType('ascent'); }}
               className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-lg text-sm font-medium transition-all ${
                 reportType === 'ascent'
                   ? 'bg-green-600 text-white'
@@ -313,7 +327,7 @@ export function QuickReport({ isOpen, onClose, onSubmit, currentRegion }: QuickR
               {t.reports.ascent}
             </button>
             <button
-              onClick={() => setReportType('descent')}
+              onClick={() => { hapticButton(); setReportType('descent'); }}
               className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-lg text-sm font-medium transition-all ${
                 reportType === 'descent'
                   ? 'bg-blue-600 text-white'
@@ -414,7 +428,7 @@ export function QuickReport({ isOpen, onClose, onSubmit, currentRegion }: QuickR
                   {[1, 2, 3, 4, 5].map((star) => (
                     <button
                       key={star}
-                      onClick={() => setQualityRating(star)}
+                      onClick={() => { hapticButton(); setQualityRating(star); }}
                       className="p-2 transition-transform active:scale-90"
                     >
                       <Star

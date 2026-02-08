@@ -225,6 +225,19 @@ export const t = {
     mockData: 'Dane testowe',
   },
 
+  // Report relevance
+  relevance: {
+    title: 'Aktualność',
+    excellent: 'Bardzo aktualne',
+    good: 'Aktualne',
+    fair: 'Częściowo aktualne',
+    stale: 'Nieaktualne',
+    outdated: 'Przestarzałe',
+    noWeatherData: 'Brak danych pogodowych',
+    averageRelevance: 'Śr. aktualność',
+    score: 'Wynik: {score}%',
+  },
+
   // Safety/Avalanche problems
   safety: {
     problems: {

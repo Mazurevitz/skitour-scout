@@ -8,9 +8,15 @@
 import { useMemo } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { pl } from 'date-fns/locale';
-import { Users, Star, AlertTriangle, MapPin, Clock, ArrowUp, ArrowDown, UserCheck } from 'lucide-react';
+import { Users, Star, AlertTriangle, MapPin, Clock, ArrowUp, ArrowDown, UserCheck, Activity } from 'lucide-react';
 import { useReportsStore, type CommunityReport, type LocationConditions } from '@/stores';
 import { t } from '@/lib/translations';
+import {
+  getRelevanceTier,
+  getRelevanceTierColor,
+  getRelevanceTierBgColor,
+} from '@/utils/relevanceScore';
+import type { RelevanceTier } from '@/types';
 
 interface CommunityIntelProps {
   region: string;
@@ -65,6 +71,41 @@ function RatingStars({ rating }: { rating: number }) {
           aria-hidden="true"
         />
       ))}
+    </div>
+  );
+}
+
+/**
+ * Get Polish label for relevance tier
+ */
+function getRelevanceTierLabel(tier: RelevanceTier): string {
+  const labels: Record<RelevanceTier, string> = {
+    excellent: t.relevance.excellent,
+    good: t.relevance.good,
+    fair: t.relevance.fair,
+    stale: t.relevance.stale,
+    outdated: t.relevance.outdated,
+  };
+  return labels[tier];
+}
+
+/**
+ * Badge showing report relevance score
+ */
+function RelevanceBadge({ score, hasWeatherData = true }: { score: number; hasWeatherData?: boolean }) {
+  const tier = getRelevanceTier(score);
+  const color = getRelevanceTierColor(tier);
+  const bgColor = getRelevanceTierBgColor(tier);
+  const label = getRelevanceTierLabel(tier);
+
+  return (
+    <div
+      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full ${bgColor} ${color} text-xs font-medium`}
+      title={hasWeatherData ? `${t.relevance.title}: ${score}%` : t.relevance.noWeatherData}
+    >
+      <Activity className="w-3 h-3" aria-hidden="true" />
+      <span>{label}</span>
+      {!hasWeatherData && <span className="opacity-60">*</span>}
     </div>
   );
 }
@@ -150,9 +191,14 @@ function LocationSummaryCard({ summary }: { summary: LocationConditions }) {
         </div>
       )}
 
-      <div className="mt-2 flex items-center gap-1 text-xs text-gray-500">
-        <Clock className="w-3 h-3" />
-        <span>Ostatni raport {timeAgo}</span>
+      <div className="mt-2 flex items-center justify-between">
+        <div className="flex items-center gap-1 text-xs text-gray-500">
+          <Clock className="w-3 h-3" />
+          <span>Ostatni raport {timeAgo}</span>
+        </div>
+        {summary.averageRelevance > 0 && (
+          <RelevanceBadge score={summary.averageRelevance} />
+        )}
       </div>
     </div>
   );
@@ -178,10 +224,18 @@ function ReportCard({ report }: { report: CommunityReport }) {
       }`}
       aria-label={`Raport ${isAscent ? 'podejścia' : 'zjazdu'} z ${report.location}`}
     >
-      {/* Human report badge */}
-      <div className="flex items-center gap-1.5 mb-2">
-        <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
-        <span className="text-xs text-emerald-400 font-medium">{t.community.userReport}</span>
+      {/* Human report badge and relevance */}
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-1.5">
+          <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
+          <span className="text-xs text-emerald-400 font-medium">{t.community.userReport}</span>
+        </div>
+        {report.relevanceScore !== undefined && (
+          <RelevanceBadge
+            score={report.relevanceScore}
+            hasWeatherData={report.weatherSnapshot !== undefined}
+          />
+        )}
       </div>
 
       <div className="flex items-center justify-between mb-2">
@@ -256,10 +310,17 @@ export function CommunityIntel({ region }: CommunityIntelProps) {
 
   const aggregated = useMemo(() => getAggregatedConditions(region), [region, reports]);
   const recentReports = useMemo(() => {
-    return getRecentReports(48).filter(
+    const filtered = getRecentReports(48).filter(
       (r) => r.region.toLowerCase().includes(region.toLowerCase()) ||
         region.toLowerCase().includes(r.region.toLowerCase())
     );
+    // Sort by relevance score (highest first), then by timestamp
+    return [...filtered].sort((a, b) => {
+      const scoreA = a.relevanceScore ?? 0;
+      const scoreB = b.relevanceScore ?? 0;
+      if (scoreB !== scoreA) return scoreB - scoreA;
+      return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime();
+    });
   }, [region, reports]);
 
   const hasData = aggregated.length > 0 || recentReports.length > 0;
