@@ -92,8 +92,7 @@ function createScoreIcon(score: number, isSelected: boolean): L.DivIcon {
       ">${score}</div>
     `,
     iconSize: [size, size],
-    iconAnchor: [size / 2, size],
-    popupAnchor: [0, -size],
+    iconAnchor: [size / 2, size / 2],
   });
 }
 
@@ -120,8 +119,7 @@ function createReportIcon(type: 'ascent' | 'descent'): L.DivIcon {
       ">${arrow}</div>
     `,
     iconSize: [28, 28],
-    iconAnchor: [14, 28],
-    popupAnchor: [0, -28],
+    iconAnchor: [14, 14],
   });
 }
 
@@ -149,8 +147,7 @@ function createVerifiedReportIcon(safetyRating: number): L.DivIcon {
       ">${personSvg}</div>
     `,
     iconSize: [30, 30],
-    iconAnchor: [15, 30],
-    popupAnchor: [0, -30],
+    iconAnchor: [15, 15],
   });
 }
 
@@ -330,7 +327,7 @@ export function MapView({
               click: () => onRouteSelect?.(route.id),
             }}
           >
-            <Popup className="route-popup">
+            <Popup className="route-popup" offset={[0, -20]}>
               <div className="p-1">
                 <h3 className="font-bold text-sm">{route.name}</h3>
                 <p className="text-xs text-gray-600">
@@ -365,7 +362,7 @@ export function MapView({
             position={[report.coordinates!.lat, report.coordinates!.lng]}
             icon={createReportIcon(report.type || 'descent')}
           >
-            <Popup>
+            <Popup offset={[0, -16]}>
               <div className="p-1">
                 <div className="flex items-center gap-1 mb-1">
                   <span
@@ -408,7 +405,7 @@ export function MapView({
             position={[report.coords!.lat, report.coords!.lng]}
             icon={createVerifiedReportIcon(report.safetyRating)}
           >
-            <Popup>
+            <Popup offset={[0, -17]}>
               <div className="p-1">
                 <div className="flex items-center gap-1 mb-1">
                   <span className="px-2 py-0.5 rounded text-xs font-medium text-white bg-green-600">
