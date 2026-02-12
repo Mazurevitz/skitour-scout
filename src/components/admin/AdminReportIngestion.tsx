@@ -50,7 +50,7 @@ interface Toast {
   message: string;
 }
 
-const REGIONS = ['Beskid Śląski', 'Beskid Żywiecki', 'Tatry'];
+const REGIONS = ['Beskidy', 'Tatry'];
 const COMMON_HAZARDS = ['kamienie', 'lód', 'krzaki', 'wiatr', 'mgła', 'lawiny', 'przenoski', 'oblodzenie'];
 
 export function AdminReportIngestion() {

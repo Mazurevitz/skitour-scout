@@ -55,7 +55,7 @@ Last updated: 2026-02-06
 ### UX/Accessibility
 - [x] Fix color contrast issues in `CommunityIntel.tsx` - Improved text colors (gray-300/400 instead of 500)
 - [x] Add ARIA labels on interactive elements - Added to ratings, buttons, articles
-- [ ] Add haptic feedback for gestures
+- [x] Add haptic feedback for gestures - Created `src/utils/haptics.ts` with Vibration API patterns
 - [ ] Consistent loading skeletons across views
 
 ---
@@ -99,4 +99,5 @@ Last updated: 2026-02-06
 - **2026-02-06**: Improved color contrast in CommunityIntel - text now meets WCAG AA standards
 - **2026-02-06**: Added ARIA labels - ratings, report cards, buttons now accessible
 - **2026-02-06**: Removed disabled Facebook OAuth button - cleaner auth UI
+- **2026-02-07**: Added haptic feedback - `src/utils/haptics.ts` with patterns for gestures, buttons, success/error states
 

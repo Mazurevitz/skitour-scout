@@ -99,7 +99,7 @@ EXTRACTION RULES:
 - SKIP: questions, jokes, outdated reports (author says "nieaktualne"), off-topic comments
 - Relative dates → ISO format: "wczoraj"=yesterday, "3 dni temu"=3 days ago, "w sobotę"=last Saturday, "we wtorek"=last Tuesday
 - If no date mentioned: use today
-- Regions: "Beskid Śląski" (Skrzyczne, Barania Góra, Klimczok, Błatnia), "Beskid Żywiecki" (Pilsko, Babia Góra, Romanka, Rycerzowa, Lipowska), "Tatry" (Kasprowy, Kondratowa, Gąsienicowa)
+- Regions: "Beskidy" (Pilsko, Babia Góra, Romanka, Rycerzowa, Lipowska, Skrzyczne, Barania Góra, Klimczok, Błatnia, Turbacz, Gorce), "Tatry" (Kasprowy, Kondratowa, Gąsienicowa, Hala Gąsienicowa, Morskie Oko, Rysy)
 - Hazards: kamienie, lód, krzaki, wiatr, mgła, lawiny, przenoski
 - safety_rating: 1-5 (1=bardzo niebezpieczne, 3=umiarkowane, 5=bardzo bezpieczne)
 - snow_conditions: MUST be in Polish, summarize the actual conditions described

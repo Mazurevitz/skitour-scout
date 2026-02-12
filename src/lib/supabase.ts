@@ -110,6 +110,12 @@ export interface Database {
           ingested_by: string | null;
           deleted_at: string | null;
           deleted_by: string | null;
+          fb_post_id: string | null;
+          scraped_post_id: string | null;
+          confidence_score: number | null;
+          review_status: 'auto_approved' | 'pending_review' | 'approved' | 'rejected';
+          reviewed_at: string | null;
+          reviewed_by: string | null;
         };
         Insert: {
           id?: string;
@@ -124,10 +130,147 @@ export interface Database {
           source_group?: string | null;
           source_type?: string;
           ingested_by?: string | null;
+          fb_post_id?: string | null;
+          scraped_post_id?: string | null;
+          confidence_score?: number | null;
+          review_status?: 'auto_approved' | 'pending_review' | 'approved' | 'rejected';
         };
         Update: {
           deleted_at?: string;
           deleted_by?: string;
+          review_status?: 'auto_approved' | 'pending_review' | 'approved' | 'rejected';
+          reviewed_at?: string;
+          reviewed_by?: string;
+          location?: string;
+          region?: string;
+          snow_conditions?: string | null;
+          hazards?: string[];
+          safety_rating?: number;
+          report_date?: string;
+          author_name?: string | null;
+        };
+      };
+      fb_group_configs: {
+        Row: {
+          id: string;
+          created_at: string;
+          group_url: string;
+          group_name: string;
+          region: string;
+          is_active: boolean;
+          max_posts_per_scrape: number;
+          last_scraped_at: string | null;
+          total_posts_scraped: number;
+          total_reports_created: number;
+        };
+        Insert: {
+          id?: string;
+          group_url: string;
+          group_name: string;
+          region: string;
+          is_active?: boolean;
+          max_posts_per_scrape?: number;
+        };
+        Update: {
+          group_url?: string;
+          group_name?: string;
+          region?: string;
+          is_active?: boolean;
+          max_posts_per_scrape?: number;
+          last_scraped_at?: string;
+          total_posts_scraped?: number;
+          total_reports_created?: number;
+        };
+      };
+      scrape_jobs: {
+        Row: {
+          id: string;
+          created_at: string;
+          mode: 'daily' | 'backfill' | 'manual';
+          apify_run_id: string | null;
+          apify_dataset_id: string | null;
+          status: 'pending' | 'running' | 'processing' | 'completed' | 'failed';
+          started_at: string | null;
+          completed_at: string | null;
+          error_message: string | null;
+          group_ids: string[];
+          posts_fetched: number;
+          posts_filtered: number;
+          posts_relevant: number;
+          reports_created: number;
+          apify_cost_usd: number | null;
+          llm_filter_cost_usd: number | null;
+          llm_parse_cost_usd: number | null;
+          triggered_by: string | null;
+          trigger_source: 'manual' | 'cron' | 'webhook';
+          date_from: string | null;
+          date_to: string | null;
+        };
+        Insert: {
+          id?: string;
+          mode: 'daily' | 'backfill' | 'manual';
+          apify_run_id?: string | null;
+          apify_dataset_id?: string | null;
+          status?: 'pending' | 'running' | 'processing' | 'completed' | 'failed';
+          group_ids?: string[];
+          triggered_by?: string | null;
+          trigger_source?: 'manual' | 'cron' | 'webhook';
+          date_from?: string | null;
+          date_to?: string | null;
+        };
+        Update: {
+          apify_run_id?: string | null;
+          apify_dataset_id?: string | null;
+          status?: 'pending' | 'running' | 'processing' | 'completed' | 'failed';
+          started_at?: string | null;
+          completed_at?: string | null;
+          error_message?: string | null;
+          posts_fetched?: number;
+          posts_filtered?: number;
+          posts_relevant?: number;
+          reports_created?: number;
+          apify_cost_usd?: number | null;
+          llm_filter_cost_usd?: number | null;
+          llm_parse_cost_usd?: number | null;
+        };
+      };
+      scraped_posts: {
+        Row: {
+          id: string;
+          created_at: string;
+          fb_post_id: string;
+          fb_group_id: string | null;
+          post_text: string | null;
+          post_date: string | null;
+          author_name: string | null;
+          comment_count: number;
+          is_relevant: boolean | null;
+          relevance_reason: string | null;
+          processed_at: string | null;
+          scrape_job_id: string | null;
+          admin_report_id: string | null;
+          char_count: number | null;
+        };
+        Insert: {
+          id?: string;
+          fb_post_id: string;
+          fb_group_id?: string | null;
+          post_text?: string | null;
+          post_date?: string | null;
+          author_name?: string | null;
+          comment_count?: number;
+          is_relevant?: boolean | null;
+          relevance_reason?: string | null;
+          processed_at?: string | null;
+          scrape_job_id?: string | null;
+          admin_report_id?: string | null;
+          char_count?: number | null;
+        };
+        Update: {
+          is_relevant?: boolean | null;
+          relevance_reason?: string | null;
+          processed_at?: string | null;
+          admin_report_id?: string | null;
         };
       };
     };
@@ -151,6 +294,9 @@ export type ReportInsert = Database['public']['Tables']['reports']['Insert'];
 export type AppSetting = Database['public']['Tables']['app_settings']['Row'];
 export type AdminReport = Database['public']['Tables']['admin_reports']['Row'];
 export type AdminReportInsert = Database['public']['Tables']['admin_reports']['Insert'];
+export type FBGroupConfig = Database['public']['Tables']['fb_group_configs']['Row'];
+export type ScrapeJob = Database['public']['Tables']['scrape_jobs']['Row'];
+export type ScrapedPost = Database['public']['Tables']['scraped_posts']['Row'];
 
 // Initialize Supabase client
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -188,8 +334,39 @@ export const getAuthHeaders = async () => {
   const { data: { session } } = await supabase.auth.getSession();
   return {
     'Content-Type': 'application/json',
+    'apikey': supabaseAnonKey || '',
     ...(session?.access_token && {
       'Authorization': `Bearer ${session.access_token}`,
     }),
   };
+};
+
+// Helper to call Edge Functions with proper auth
+export const callEdgeFunction = async <T = unknown>(
+  functionName: string,
+  body: Record<string, unknown>
+): Promise<{ data: T | null; error: string | null }> => {
+  try {
+    console.log('[callEdgeFunction] Calling:', functionName, body);
+
+    const { data, error } = await supabase.functions.invoke(functionName, {
+      body,
+    });
+
+    console.log('[callEdgeFunction] Response:', { data, error: error?.message });
+
+    if (error) {
+      // Try to parse error context for better messages
+      let errorMsg = error.message;
+      if (data?.error) errorMsg = data.error;
+      if (data?.details) errorMsg += `: ${data.details}`;
+      if (data?.help) errorMsg += `\n\n${data.help}`;
+      return { data: null, error: errorMsg };
+    }
+
+    return { data: data as T, error: null };
+  } catch (err) {
+    console.error('[callEdgeFunction] Error:', err);
+    return { data: null, error: err instanceof Error ? err.message : 'Unknown error' };
+  }
 };

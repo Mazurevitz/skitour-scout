@@ -1,5 +1,6 @@
 import { X } from 'lucide-react';
 import { useAuthStore, AuthProvider } from '../../stores/useAuthStore';
+import { hapticButton } from '@/utils/haptics';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -12,6 +13,7 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
   if (!isOpen) return null;
 
   const handleSignIn = async (provider: AuthProvider) => {
+    hapticButton();
     await signInWithProvider(provider);
     // Modal will close automatically after redirect
   };

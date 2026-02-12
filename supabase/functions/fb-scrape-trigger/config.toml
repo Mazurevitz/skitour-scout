@@ -1,0 +1,2 @@
+# Disable gateway JWT verification - we handle auth in the function
+verify_jwt = false

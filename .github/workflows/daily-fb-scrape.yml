@@ -1,0 +1,88 @@
+name: Daily FB Scrape
+
+on:
+  schedule:
+    # Run at 6 AM UTC daily (7 AM CET / 8 AM CEST)
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    # Allow manual trigger from GitHub Actions UI
+    inputs:
+      mode:
+        description: 'Scrape mode'
+        required: true
+        default: 'daily'
+        type: choice
+        options:
+          - daily
+          - backfill
+
+jobs:
+  trigger-scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Trigger FB scrape
+        run: |
+          MODE="${{ github.event.inputs.mode || 'daily' }}"
+          echo "Triggering $MODE scrape..."
+
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d "{\"mode\": \"$MODE\"}" \
+            "${{ secrets.SUPABASE_URL }}/functions/v1/fb-scrape-trigger")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n 1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+
+          echo "Response: $BODY"
+          echo "HTTP Status: $HTTP_CODE"
+
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+            echo "Scrape triggered successfully!"
+            JOB_ID=$(echo "$BODY" | jq -r '.job_id // empty')
+            if [ -n "$JOB_ID" ]; then
+              echo "Job ID: $JOB_ID"
+            fi
+          else
+            echo "Failed to trigger scrape"
+            exit 1
+          fi
+
+      - name: Wait for Apify run
+        run: |
+          echo "Waiting 2 minutes for Apify to complete..."
+          sleep 120
+
+      - name: Process results
+        run: |
+          echo "Processing scrape results..."
+
+          RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d "{}" \
+            "${{ secrets.SUPABASE_URL }}/functions/v1/fb-scrape-process")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n 1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+
+          echo "Response: $BODY"
+          echo "HTTP Status: $HTTP_CODE"
+
+          if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+            echo "Processing completed!"
+            REPORTS=$(echo "$BODY" | jq -r '.stats.reports_created // 0')
+            COST=$(echo "$BODY" | jq -r '.stats.costs.total_usd // "unknown"')
+            echo "Reports created: $REPORTS"
+            echo "Total cost: $COST"
+          else
+            # Not a failure if Apify is still running
+            if echo "$BODY" | grep -q "still in progress"; then
+              echo "Apify run still in progress, will be processed later"
+            else
+              echo "Failed to process results"
+              exit 1
+            fi
+          fi
