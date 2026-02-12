@@ -76,10 +76,24 @@ export function Dashboard() {
 
           {/* Region picker dropdown */}
           {showRegionPicker && (
-            <div className="absolute top-full left-0 mt-1 bg-gray-800 border border-gray-700 rounded-lg shadow-lg z-50 min-w-[200px]">
+            <div className="absolute top-full left-0 mt-1 bg-gray-800 border border-gray-700 rounded-lg shadow-lg z-50 min-w-[200px] max-h-[70vh] overflow-y-auto">
               <div className="p-1">
-                <div className="px-2 py-1 text-xs text-gray-500 font-medium">Beskidy</div>
-                {['Beskid Śląski', 'Beskid Żywiecki'].map((region) => (
+                <button
+                  onClick={() => {
+                    updateConfig({ region: 'Wszystkie' });
+                    setShowRegionPicker(false);
+                    refreshAll();
+                  }}
+                  className={`w-full text-left px-3 py-2 rounded text-sm font-medium transition-colors ${
+                    config.region === 'Wszystkie'
+                      ? 'bg-blue-600 text-white'
+                      : 'text-gray-300 hover:bg-gray-700'
+                  }`}
+                >
+                  Wszystkie regiony
+                </button>
+                <div className="px-2 py-1 text-xs text-gray-500 font-medium mt-2">Beskidy</div>
+                {['Beskid Śląski', 'Beskid Żywiecki', 'Beskid Sądecki'].map((region) => (
                   <button
                     key={region}
                     onClick={() => {
@@ -111,6 +125,24 @@ export function Dashboard() {
                 >
                   Tatry
                 </button>
+                <div className="px-2 py-1 text-xs text-gray-500 font-medium mt-1">Inne</div>
+                {['Gorce', 'Pieniny', 'Karkonosze'].map((region) => (
+                  <button
+                    key={region}
+                    onClick={() => {
+                      updateConfig({ region });
+                      setShowRegionPicker(false);
+                      refreshAll();
+                    }}
+                    className={`w-full text-left px-3 py-2 rounded text-sm transition-colors ${
+                      config.region === region
+                        ? 'bg-blue-600 text-white'
+                        : 'text-gray-300 hover:bg-gray-700'
+                    }`}
+                  >
+                    {region}
+                  </button>
+                ))}
               </div>
             </div>
           )}

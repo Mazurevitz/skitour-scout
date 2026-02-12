@@ -872,6 +872,10 @@ export const useReportsStore = create<ReportsState>((set, get) => ({
 
   getAdminReportsForRegion: (region: string) => {
     const { adminReports } = get();
+    // Return all reports for "Wszystkie" (All)
+    if (region === 'Wszystkie') {
+      return adminReports;
+    }
     return adminReports.filter((r) =>
       r.region.toLowerCase().includes(region.toLowerCase()) ||
       region.toLowerCase().includes(r.region.toLowerCase())

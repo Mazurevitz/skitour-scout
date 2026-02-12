@@ -272,7 +272,7 @@ function getRoutesForRegion(region: string): Route[] {
  * Default configuration
  */
 const defaultConfig: AppConfig = {
-  region: 'Beskid Śląski',
+  region: 'Wszystkie',
   refreshInterval: 30,
   enabledAgents: ['weather', 'safety', 'social'],
 };

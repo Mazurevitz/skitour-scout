@@ -24,10 +24,15 @@ export const t = {
 
   // Regions
   regions: {
+    all: 'Wszystkie',
     tatry: 'Tatry',
     beskidSlaski: 'Beskid Śląski',
     beskidZywiecki: 'Beskid Żywiecki',
     beskidy: 'Beskidy',
+    gorce: 'Gorce',
+    pieniny: 'Pieniny',
+    karkonosze: 'Karkonosze',
+    beskidSadecki: 'Beskid Sądecki',
   },
 
   // Avalanche

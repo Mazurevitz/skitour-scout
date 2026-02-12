@@ -130,8 +130,13 @@ export function MobileDashboard() {
 
   // Get recent community reports for current region - memoized
   const recentReports = useMemo(() => {
+    const allReports = getRecentReports(48);
+    // Return all reports for "Wszystkie" (All)
+    if (config.region === 'Wszystkie') {
+      return allReports;
+    }
     const regionLower = config.region.toLowerCase();
-    return getRecentReports(48).filter(
+    return allReports.filter(
       (r) => r.region.toLowerCase().includes(regionLower) ||
         regionLower.includes(r.region.toLowerCase())
     );
@@ -163,12 +168,19 @@ export function MobileDashboard() {
           }}
           className="bg-gray-800 text-white text-sm font-medium rounded-lg px-3 py-2 border border-gray-700 focus:outline-none focus:border-blue-500 min-h-[44px]"
         >
+          <option value="Wszystkie">{t.regions.all}</option>
           <optgroup label={t.regions.beskidy}>
             <option value="Beskid Śląski">{t.regions.beskidSlaski}</option>
             <option value="Beskid Żywiecki">{t.regions.beskidZywiecki}</option>
+            <option value="Beskid Sądecki">{t.regions.beskidSadecki}</option>
           </optgroup>
           <optgroup label={t.regions.tatry}>
             <option value="Tatry">{t.regions.tatry}</option>
+          </optgroup>
+          <optgroup label="Inne">
+            <option value="Gorce">{t.regions.gorce}</option>
+            <option value="Pieniny">{t.regions.pieniny}</option>
+            <option value="Karkonosze">{t.regions.karkonosze}</option>
           </optgroup>
         </select>
 

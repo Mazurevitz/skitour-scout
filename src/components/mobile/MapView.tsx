@@ -36,9 +36,14 @@ interface MapViewProps {
 // Geocode location name to coordinates using known locations
 function geocodeLocation(locationName: string, region: string): { lat: number; lng: number } | null {
   // Get all known locations for all regions
-  const allRegions = ['Beskid Śląski', 'Beskid Żywiecki', 'Tatry'];
+  const allRegions = ['Beskid Śląski', 'Beskid Żywiecki', 'Beskid Sądecki', 'Tatry', 'Gorce', 'Pieniny', 'Karkonosze'];
 
-  for (const r of [region, ...allRegions.filter(x => x !== region)]) {
+  // If "Wszystkie" selected, search all regions
+  const regionsToSearch = region === 'Wszystkie'
+    ? allRegions
+    : [region, ...allRegions.filter(x => x !== region)];
+
+  for (const r of regionsToSearch) {
     const locations = WeatherAgent.getLocationsByRegion(r);
 
     // Try exact match first
@@ -62,9 +67,14 @@ function geocodeLocation(locationName: string, region: string): { lat: number; l
 
 // Region center coordinates
 const REGION_CONFIG: Record<string, { center: [number, number]; zoom: number }> = {
+  'Wszystkie': { center: [49.5, 19.5], zoom: 8 }, // Overview of all Polish mountains
   'Beskid Śląski': { center: [49.68, 19.0], zoom: 11 },
   'Beskid Żywiecki': { center: [49.57, 19.35], zoom: 11 },
+  'Beskid Sądecki': { center: [49.45, 20.6], zoom: 11 },
   'Tatry': { center: [49.23, 20.0], zoom: 11 },
+  'Gorce': { center: [49.55, 20.1], zoom: 11 },
+  'Pieniny': { center: [49.42, 20.4], zoom: 12 },
+  'Karkonosze': { center: [50.75, 15.7], zoom: 11 },
 };
 
 // Custom marker icons
