@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import type { ConditionReport } from '@/agents';
 import { ConfidenceBadge, ConfidenceLegend } from './ConfidenceBadge';
+import { LoadingSkeleton } from './ui';
 import { t } from '@/lib/translations';
 import type { VerifiedReport } from '@/stores/useReportsStore';
 
@@ -74,15 +75,7 @@ export function IntelFeed({
   const [selectedLocation, setSelectedLocation] = useState<string>('all');
 
   if (loading) {
-    return (
-      <div className="space-y-3">
-        {[1, 2, 3].map((i) => (
-          <div key={i} className="bg-mountain-dark rounded-lg p-4 animate-pulse">
-            <div className="h-20 bg-gray-700 rounded" />
-          </div>
-        ))}
-      </div>
-    );
+    return <LoadingSkeleton count={3} height="h-24" />;
   }
 
   return (

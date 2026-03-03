@@ -7,7 +7,8 @@
  */
 
 import { useState, useRef } from 'react';
-import { X, MapPin, Send, Star, Loader2, Navigation, ArrowUp, ArrowDown, AlertCircle, Clock, LogIn } from 'lucide-react';
+import { X, MapPin, Send, Loader2, Navigation, ArrowUp, ArrowDown, AlertCircle, Clock, LogIn } from 'lucide-react';
+import { StarRating } from '@/components/ui';
 import type {
   ReportType,
   TrackStatus,
@@ -23,36 +24,14 @@ import { t } from '@/lib/translations';
 import { hapticButton, hapticGesture, hapticSuccess, hapticError } from '@/utils/haptics';
 import type { ElevationWeather } from '@/types';
 import { createWeatherSnapshot } from '@/utils/relevanceScore';
-
-// Track status options for ascent
-const TRACK_STATUS_OPTIONS: { id: TrackStatus; label: string; emoji: string }[] = [
-  { id: 'przetarte', label: t.reports.track.tracked, emoji: '✅' },
-  { id: 'zasypane', label: t.reports.track.covered, emoji: '❄️' },
-  { id: 'lod', label: t.reports.track.icy, emoji: '🧊' },
-];
-
-// Gear options for ascent
-const GEAR_OPTIONS: { id: AscentGear; label: string; emoji: string }[] = [
-  { id: 'foki', label: t.reports.gear.skins, emoji: '🦭' },
-  { id: 'harszle', label: t.reports.gear.skiCrampons, emoji: '⛓️' },
-  { id: 'raki', label: t.reports.gear.crampons, emoji: '🦀' },
-];
-
-// Snow condition options for descent
-const SNOW_CONDITIONS: { id: SnowCondition; label: string; emoji: string }[] = [
-  { id: 'puch', label: t.reports.snow.powder, emoji: '❄️' },
-  { id: 'firn', label: t.reports.snow.corn, emoji: '🌞' },
-  { id: 'cukier', label: t.reports.snow.sugar, emoji: '✨' },
-  { id: 'szren', label: t.reports.snow.crust, emoji: '🧊' },
-  { id: 'beton', label: t.reports.snow.hardIcy, emoji: '🪨' },
-  { id: 'kamienie', label: t.reports.snow.rocks, emoji: '⚠️' },
-];
-
-const LOCATIONS: Record<string, string[]> = {
-  'Beskid Śląski': ['Skrzyczne', 'Pilsko', 'Rycerzowa', 'Barania Góra', 'Klimczok', 'Szczyrk'],
-  'Beskid Żywiecki': ['Babia Góra', 'Pilsko', 'Romanka', 'Hala Miziowa'],
-  'Tatry': ['Kasprowy Wierch', 'Rysy', 'Świnica', 'Morskie Oko', 'Hala Gąsienicowa'],
-};
+import {
+  TRACK_STATUS_OPTIONS,
+  GEAR_OPTION_LIST,
+  SNOW_CONDITION_OPTIONS,
+  getLocationsForRegion,
+  SWIPE_DISMISS_THRESHOLD_PX,
+  GEOLOCATION_TIMEOUT_MS,
+} from '@/constants';
 
 interface QuickReportProps {
   isOpen: boolean;
@@ -87,7 +66,7 @@ export function QuickReport({ isOpen, onClose, onSubmit, currentRegion, elevatio
   const { error: reportError, clearError } = useReportsStore();
 
   const startY = useRef(0);
-  const locations = LOCATIONS[currentRegion] || LOCATIONS['Beskid Śląski'];
+  const locations = getLocationsForRegion(currentRegion);
 
   // Check if auth is required (Supabase configured but user not logged in)
   const requiresAuth = isSupabaseConfigured() && !user;
@@ -106,7 +85,7 @@ export function QuickReport({ isOpen, onClose, onSubmit, currentRegion, elevatio
   };
 
   const handleTouchEnd = () => {
-    if (dragOffset > 100) {
+    if (dragOffset > SWIPE_DISMISS_THRESHOLD_PX) {
       hapticGesture();
       onClose();
     }
@@ -134,7 +113,7 @@ export function QuickReport({ isOpen, onClose, onSubmit, currentRegion, elevatio
         setIsGettingLocation(false);
         alert('Nie udało się pobrać lokalizacji GPS');
       },
-      { enableHighAccuracy: true, timeout: 10000 }
+      { enableHighAccuracy: true, timeout: GEOLOCATION_TIMEOUT_MS }
     );
   };
 
@@ -374,7 +353,7 @@ export function QuickReport({ isOpen, onClose, onSubmit, currentRegion, elevatio
                   {t.reports.gearNeeded}
                 </label>
                 <div className="grid grid-cols-3 gap-2">
-                  {GEAR_OPTIONS.map((opt) => (
+                  {GEAR_OPTION_LIST.map((opt) => (
                     <button
                       key={opt.id}
                       onClick={() => toggleGear(opt.id)}
@@ -402,7 +381,7 @@ export function QuickReport({ isOpen, onClose, onSubmit, currentRegion, elevatio
                   {t.reports.snowCondition}
                 </label>
                 <div className="grid grid-cols-3 gap-2">
-                  {SNOW_CONDITIONS.map((c) => (
+                  {SNOW_CONDITION_OPTIONS.map((c) => (
                     <button
                       key={c.id}
                       onClick={() => setSnowCondition(c.id)}
@@ -424,22 +403,12 @@ export function QuickReport({ isOpen, onClose, onSubmit, currentRegion, elevatio
                 <label className="text-sm font-medium text-gray-400 mb-3 block">
                   {t.reports.qualityRating}
                 </label>
-                <div className="flex justify-center gap-2">
-                  {[1, 2, 3, 4, 5].map((star) => (
-                    <button
-                      key={star}
-                      onClick={() => { hapticButton(); setQualityRating(star); }}
-                      className="p-2 transition-transform active:scale-90"
-                    >
-                      <Star
-                        className={`w-12 h-12 ${
-                          star <= qualityRating
-                            ? 'text-yellow-400 fill-yellow-400'
-                            : 'text-gray-600'
-                        }`}
-                      />
-                    </button>
-                  ))}
+                <div className="flex justify-center">
+                  <StarRating
+                    rating={qualityRating}
+                    onChange={(rating) => { hapticButton(); setQualityRating(rating); }}
+                    size="lg"
+                  />
                 </div>
               </div>
             </>

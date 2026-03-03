@@ -273,6 +273,32 @@ export interface Database {
           admin_report_id?: string | null;
         };
       };
+      report_embeddings: {
+        Row: {
+          id: string;
+          report_id: string | null;
+          report_type: 'community' | 'admin' | 'route';
+          content: string;
+          embedding: number[] | null;
+          metadata: Record<string, unknown>;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          report_id?: string | null;
+          report_type: 'community' | 'admin' | 'route';
+          content: string;
+          embedding?: number[] | null;
+          metadata?: Record<string, unknown>;
+        };
+        Update: {
+          content?: string;
+          embedding?: number[] | null;
+          metadata?: Record<string, unknown>;
+          updated_at?: string;
+        };
+      };
     };
     Functions: {
       can_submit_report: {
@@ -282,6 +308,33 @@ export interface Database {
       minutes_until_next_report: {
         Args: { p_user_id: string };
         Returns: number;
+      };
+      match_reports: {
+        Args: {
+          query_embedding: number[];
+          match_threshold?: number;
+          match_count?: number;
+          filter_region?: string | null;
+          filter_types?: string[] | null;
+        };
+        Returns: {
+          id: string;
+          report_id: string | null;
+          report_type: string;
+          content: string;
+          metadata: Record<string, unknown>;
+          similarity: number;
+        }[];
+      };
+      upsert_report_embedding: {
+        Args: {
+          p_report_id: string | null;
+          p_report_type: string;
+          p_content: string;
+          p_embedding: number[];
+          p_metadata?: Record<string, unknown>;
+        };
+        Returns: string;
       };
     };
   };
@@ -297,6 +350,7 @@ export type AdminReportInsert = Database['public']['Tables']['admin_reports']['I
 export type FBGroupConfig = Database['public']['Tables']['fb_group_configs']['Row'];
 export type ScrapeJob = Database['public']['Tables']['scrape_jobs']['Row'];
 export type ScrapedPost = Database['public']['Tables']['scraped_posts']['Row'];
+export type ReportEmbedding = Database['public']['Tables']['report_embeddings']['Row'];
 
 // Initialize Supabase client
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;

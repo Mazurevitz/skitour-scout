@@ -16,6 +16,20 @@ import type {
 } from '@/types';
 
 /**
+ * Age-based depreciation configuration
+ */
+export const AGE_CONFIG = {
+  /** Hours after which report is considered "archived" and excluded from aggregations */
+  ARCHIVE_THRESHOLD_HOURS: 336, // 14 days = 2 weeks
+  /** Hours at which report reaches minimum weight (but still counted) */
+  FULL_DECAY_HOURS: 168, // 7 days
+  /** Grace period with full weight */
+  FULL_WEIGHT_HOURS: 12,
+  /** Minimum weight for non-archived reports */
+  MIN_WEIGHT: 0.2,
+} as const;
+
+/**
  * Weight configuration for relevance factors
  */
 const WEIGHTS = {
@@ -375,4 +389,78 @@ export function createWeatherSnapshot(elevationWeather: ElevationWeather): Weath
     condition: elevationWeather.summit.condition,
     capturedAt: new Date().toISOString(),
   };
+}
+
+/**
+ * Get the age of a report in hours
+ * @param timestamp - Report timestamp
+ * @returns Age in hours
+ */
+export function getReportAgeHours(timestamp: string): number {
+  const reportTime = new Date(timestamp).getTime();
+  const now = Date.now();
+  return (now - reportTime) / (1000 * 60 * 60);
+}
+
+/**
+ * Check if a report is archived (older than 2 weeks)
+ * Archived reports should be shown for reference but not included in aggregations
+ * @param timestamp - Report timestamp
+ * @returns true if report is archived
+ */
+export function isReportArchived(timestamp: string): boolean {
+  return getReportAgeHours(timestamp) >= AGE_CONFIG.ARCHIVE_THRESHOLD_HOURS;
+}
+
+/**
+ * Calculate the weight of a report based on age (0-1 scale)
+ * - First 12 hours: weight = 1.0
+ * - 12h to 7 days: linear decay from 1.0 to 0.2
+ * - 7 days to 2 weeks: weight = 0.2 (minimum)
+ * - After 2 weeks: weight = 0 (archived, excluded from aggregations)
+ *
+ * @param timestamp - Report timestamp
+ * @returns Weight between 0 and 1
+ */
+export function calculateReportWeight(timestamp: string): number {
+  const ageHours = getReportAgeHours(timestamp);
+
+  // Archived reports have no weight in aggregations
+  if (ageHours >= AGE_CONFIG.ARCHIVE_THRESHOLD_HOURS) {
+    return 0;
+  }
+
+  // Full weight during grace period
+  if (ageHours <= AGE_CONFIG.FULL_WEIGHT_HOURS) {
+    return 1.0;
+  }
+
+  // After full decay, minimum weight
+  if (ageHours >= AGE_CONFIG.FULL_DECAY_HOURS) {
+    return AGE_CONFIG.MIN_WEIGHT;
+  }
+
+  // Linear decay between grace period and full decay
+  const decayRange = AGE_CONFIG.FULL_DECAY_HOURS - AGE_CONFIG.FULL_WEIGHT_HOURS;
+  const decayProgress = (ageHours - AGE_CONFIG.FULL_WEIGHT_HOURS) / decayRange;
+  const weightRange = 1.0 - AGE_CONFIG.MIN_WEIGHT;
+
+  return 1.0 - (decayProgress * weightRange);
+}
+
+/**
+ * Get a human-readable age category for a report
+ * @param timestamp - Report timestamp
+ * @returns Age category: 'fresh' | 'recent' | 'aging' | 'old' | 'archived'
+ */
+export function getReportAgeCategory(
+  timestamp: string
+): 'fresh' | 'recent' | 'aging' | 'old' | 'archived' {
+  const ageHours = getReportAgeHours(timestamp);
+
+  if (ageHours >= AGE_CONFIG.ARCHIVE_THRESHOLD_HOURS) return 'archived';
+  if (ageHours >= AGE_CONFIG.FULL_DECAY_HOURS) return 'old';
+  if (ageHours >= 72) return 'aging'; // 3 days
+  if (ageHours >= AGE_CONFIG.FULL_WEIGHT_HOURS) return 'recent';
+  return 'fresh';
 }

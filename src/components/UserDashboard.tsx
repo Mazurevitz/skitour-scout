@@ -5,30 +5,16 @@
  */
 
 import { useState, useEffect } from 'react';
-import { X, Trash2, MapPin, ArrowUp, ArrowDown, Star, Loader2, AlertCircle } from 'lucide-react';
+import { X, Trash2, MapPin, ArrowUp, ArrowDown, Loader2, AlertCircle } from 'lucide-react';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { useReportsStore, type CommunityReport } from '@/stores/useReportsStore';
 import { format } from 'date-fns';
+import { getSnowConfig, getTrackConfig } from '@/constants';
+import { StarRating } from '@/components/ui';
 
 interface UserDashboardProps {
   onClose: () => void;
 }
-
-const SNOW_LABELS: Record<string, string> = {
-  puch: 'Puch',
-  firn: 'Firn',
-  szren: 'Szreń',
-  beton: 'Beton',
-  cukier: 'Cukier',
-  kamienie: 'Kamienie',
-  mokry: 'Mokry',
-};
-
-const TRACK_LABELS: Record<string, string> = {
-  przetarte: 'Przetarte',
-  zasypane: 'Zasypane',
-  lod: 'Lód',
-};
 
 export function UserDashboard({ onClose }: UserDashboardProps) {
   const { user, profile } = useAuthStore();
@@ -102,7 +88,7 @@ export function UserDashboard({ onClose }: UserDashboardProps) {
             {isAscent && report.ascent && (
               <div className="text-sm text-gray-400">
                 <span className="text-white">
-                  {TRACK_LABELS[report.ascent.trackStatus] || report.ascent.trackStatus}
+                  {getTrackConfig(report.ascent.trackStatus).label}
                 </span>
                 {report.ascent.gearNeeded.length > 0 && (
                   <span> • {report.ascent.gearNeeded.join(', ')}</span>
@@ -113,20 +99,9 @@ export function UserDashboard({ onClose }: UserDashboardProps) {
             {!isAscent && report.descent && (
               <div className="flex items-center gap-2 text-sm">
                 <span className="text-white">
-                  {SNOW_LABELS[report.descent.snowCondition] || report.descent.snowCondition}
+                  {getSnowConfig(report.descent.snowCondition).label}
                 </span>
-                <div className="flex items-center gap-0.5">
-                  {[1, 2, 3, 4, 5].map((star) => (
-                    <Star
-                      key={star}
-                      className={`w-3 h-3 ${
-                        star <= report.descent!.qualityRating
-                          ? 'text-yellow-400 fill-yellow-400'
-                          : 'text-gray-600'
-                      }`}
-                    />
-                  ))}
-                </div>
+                <StarRating rating={report.descent.qualityRating} readonly />
               </div>
             )}
 

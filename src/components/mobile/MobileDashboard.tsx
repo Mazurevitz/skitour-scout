@@ -12,12 +12,14 @@ import {
   Mountain,
   Route,
   Radio,
+  MessageCircle,
   AlertTriangle,
   X,
   WifiOff,
   CloudOff,
 } from 'lucide-react';
 import { useOnlineStatus } from '@/hooks/useOnlineStatus';
+import { useIsDesktop } from '@/hooks/useMediaQuery';
 import { useAppStore, useReportsStore, type NewReportInput } from '@/stores';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { WeatherAgent } from '@/agents';
@@ -26,6 +28,7 @@ import { MapView } from './MapView';
 import { QuickReport } from './QuickReport';
 import { CommunityIntel } from './CommunityIntel';
 import { IntelSummary } from './IntelSummary';
+import { AssistantChat } from './AssistantChat';
 import { AvalancheIndicator } from '../AvalancheIndicator';
 import { RouteCard } from '../RouteCard';
 import { IntelFeed } from '../IntelFeed';
@@ -35,9 +38,10 @@ import { AdminSettings } from '../admin/AdminSettings';
 import { LoginButton } from '../auth/LoginButton';
 import { ResortConditions } from '../ResortConditions';
 import { ElevationWeatherCard } from '../ElevationWeatherCard';
+import { LoadingSkeleton } from '../ui';
 import { t } from '@/lib/translations';
 
-type ViewType = 'overview' | 'routes' | 'reports';
+type ViewType = 'overview' | 'routes' | 'reports' | 'assistant';
 
 export function MobileDashboard() {
   const [activeView, setActiveView] = useState<ViewType>('overview');
@@ -68,6 +72,7 @@ export function MobileDashboard() {
   } = useAppStore();
 
   const {
+    reports,
     initialize: initReports,
     addReport,
     getRecentReports,
@@ -77,6 +82,7 @@ export function MobileDashboard() {
 
   const { initialize: initAuth, cleanup: cleanupAuth } = useAuthStore();
   const isOnline = useOnlineStatus();
+  const isDesktop = useIsDesktop();
 
   // Memoize expensive computations
   const regionLocations = useMemo(
@@ -129,8 +135,9 @@ export function MobileDashboard() {
   );
 
   // Get recent community reports for current region - memoized
+  // Use 336 hours (14 days) to include older reports on map (they'll be shown as archived)
   const recentReports = useMemo(() => {
-    const allReports = getRecentReports(48);
+    const allReports = getRecentReports(336);
     // Return all reports for "Wszystkie" (All)
     if (config.region === 'Wszystkie') {
       return allReports;
@@ -140,7 +147,7 @@ export function MobileDashboard() {
       (r) => r.region.toLowerCase().includes(regionLower) ||
         regionLower.includes(r.region.toLowerCase())
     );
-  }, [getRecentReports, config.region]);
+  }, [getRecentReports, config.region, reports]); // Added reports to trigger re-render when reports change
 
   const recentReportsCount = recentReports.length;
 
@@ -170,16 +177,17 @@ export function MobileDashboard() {
         >
           <option value="Wszystkie">{t.regions.all}</option>
           <optgroup label={t.regions.beskidy}>
+            <option value="Beskidy">{t.regions.beskidy}</option>
             <option value="Beskid Śląski">{t.regions.beskidSlaski}</option>
             <option value="Beskid Żywiecki">{t.regions.beskidZywiecki}</option>
             <option value="Beskid Sądecki">{t.regions.beskidSadecki}</option>
+            <option value="Gorce">{t.regions.gorce}</option>
+            <option value="Pieniny">{t.regions.pieniny}</option>
           </optgroup>
           <optgroup label={t.regions.tatry}>
             <option value="Tatry">{t.regions.tatry}</option>
           </optgroup>
-          <optgroup label="Inne">
-            <option value="Gorce">{t.regions.gorce}</option>
-            <option value="Pieniny">{t.regions.pieniny}</option>
+          <optgroup label="Sudety">
             <option value="Karkonosze">{t.regions.karkonosze}</option>
           </optgroup>
         </select>
@@ -210,6 +218,7 @@ export function MobileDashboard() {
           { id: 'overview', label: t.nav.overview, icon: Mountain, badge: 0 },
           { id: 'routes', label: t.nav.routes, icon: Route, badge: 0 },
           { id: 'reports', label: t.nav.reports, icon: Radio, badge: recentReportsCount },
+          { id: 'assistant', label: 'Asystent', icon: MessageCircle, badge: 0 },
         ].map((tab) => (
           <button
             key={tab.id}
@@ -237,7 +246,7 @@ export function MobileDashboard() {
     <div className="h-full bg-gray-900 relative">
       {/* Offline Banner */}
       {!isOnline && (
-        <div className="fixed top-0 left-0 right-0 z-50 p-3 bg-amber-900/95 border-b border-amber-700 flex items-center gap-3">
+        <div className="fixed top-0 left-0 right-0 z-50 p-3 bg-amber-900/95 border-b border-amber-700 flex items-center gap-3 lg:left-[400px]">
           <WifiOff className="w-5 h-5 text-amber-200 flex-shrink-0" />
           <div className="flex-1">
             <span className="text-sm text-amber-100">
@@ -254,7 +263,7 @@ export function MobileDashboard() {
 
       {/* Pending Operations Badge (when online but have pending) */}
       {isOnline && pendingOperations > 0 && (
-        <div className="fixed top-0 left-0 right-0 z-50 p-2 bg-blue-900/95 border-b border-blue-700 flex items-center justify-center gap-2">
+        <div className="fixed top-0 left-0 right-0 z-50 p-2 bg-blue-900/95 border-b border-blue-700 flex items-center justify-center gap-2 lg:left-[400px]">
           <CloudOff className="w-4 h-4 text-blue-300" />
           <span className="text-xs text-blue-200">
             Synchronizacja {pendingOperations} {pendingOperations === 1 ? 'oczekującej operacji' : 'oczekujących operacji'}...
@@ -264,7 +273,7 @@ export function MobileDashboard() {
 
       {/* Error Banner */}
       {error && isOnline && (
-        <div className="fixed top-0 left-0 right-0 z-50 p-3 bg-red-900/95 border-b border-red-700 flex items-center justify-between gap-3 animate-in slide-in-from-top duration-300">
+        <div className="fixed top-0 left-0 right-0 z-50 p-3 bg-red-900/95 border-b border-red-700 flex items-center justify-between gap-3 animate-in slide-in-from-top duration-300 lg:left-[400px]">
           <div className="flex items-center gap-2 text-red-100">
             <AlertTriangle className="w-5 h-5 flex-shrink-0" />
             <span className="text-sm">{error.message}</span>
@@ -287,13 +296,14 @@ export function MobileDashboard() {
         verifiedReports={verifiedReports}
         onRouteSelect={handleRouteSelect}
         selectedRouteId={selectedRouteId}
+        className="lg:left-[400px]"
       />
 
       {/* Quick Report FAB */}
       <button
         onClick={() => setShowQuickReport(true)}
-        className="fixed right-4 z-30 w-14 h-14 bg-blue-600 hover:bg-blue-700 rounded-full shadow-lg flex items-center justify-center transition-all active:scale-95"
-        style={{ bottom: `calc(${[15, 50, 90][sheetSnap]}dvh + 16px)` }}
+        className="fixed right-4 z-30 w-14 h-14 bg-blue-600 hover:bg-blue-700 rounded-full shadow-lg flex items-center justify-center transition-all active:scale-95 lg:bottom-6"
+        style={isDesktop ? undefined : { bottom: `calc(${[15, 50, 90][sheetSnap]}dvh + 16px)` }}
       >
         <Plus className="w-7 h-7 text-white" />
       </button>
@@ -340,11 +350,7 @@ export function MobileDashboard() {
                 </div>
                 <div className="space-y-2">
                   {loading.routes ? (
-                    <div className="animate-pulse space-y-2">
-                      {[1, 2, 3].map((i) => (
-                        <div key={i} className="h-20 bg-gray-800 rounded-xl" />
-                      ))}
-                    </div>
+                    <LoadingSkeleton count={3} height="h-20" />
                   ) : (
                     sortedRoutes.slice(0, 3).map((route) => (
                       <div key={route.id} onClick={() => handleRouteSelect(route.id)}>
@@ -419,6 +425,21 @@ export function MobileDashboard() {
                   onSearchWeb={searchWeb}
                 />
               </div>
+            </div>
+          )}
+
+          {/* Assistant View */}
+          {activeView === 'assistant' && (
+            <div className="h-[calc(100%-1rem)]">
+              <AssistantChat
+                region={config.region}
+                currentConditions={{
+                  avalancheLevel: avalancheReport?.level,
+                  temperature: elevationWeather[0]?.summit?.temperature,
+                  snowDepth: elevationWeather[0]?.freshSnow24h,
+                  weather: elevationWeather[0]?.summit?.condition,
+                }}
+              />
             </div>
           )}
         </div>

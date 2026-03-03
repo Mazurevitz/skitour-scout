@@ -7,6 +7,7 @@
 
 import { useState, useRef, useEffect, useCallback, type ReactNode } from 'react';
 import { ChevronDown } from 'lucide-react';
+import { useIsDesktop } from '@/hooks/useMediaQuery';
 
 interface BottomSheetProps {
   children: ReactNode;
@@ -36,6 +37,7 @@ export function BottomSheet({
   const scrollAccumulator = useRef(0);
   const lastWheelTime = useRef(0);
 
+  const isDesktop = useIsDesktop();
   const currentHeight = snapPoints[currentSnap];
   const isCollapsed = currentSnap === 0;
 
@@ -48,8 +50,11 @@ export function BottomSheet({
     }
   }, [currentSnap, snapPoints.length, onSnapChange]);
 
-  // Global wheel handler - works anywhere in the app
+  // Global wheel handler - works anywhere in the app (mobile only)
   useEffect(() => {
+    // Skip wheel-based snap behavior on desktop
+    if (isDesktop) return;
+
     const handleWheel = (e: WheelEvent) => {
       const now = Date.now();
 
@@ -112,7 +117,7 @@ export function BottomSheet({
 
     window.addEventListener('wheel', handleWheel, { passive: false });
     return () => window.removeEventListener('wheel', handleWheel);
-  }, [currentSnap, snapPoints.length, snapTo]);
+  }, [currentSnap, snapPoints.length, snapTo, isDesktop]);
 
   // Touch drag handlers
   const handleTouchStart = (e: React.TouchEvent) => {
@@ -191,51 +196,57 @@ export function BottomSheet({
 
   return (
     <div
-      className={`fixed bottom-0 left-0 right-0 bg-gray-900 rounded-t-3xl shadow-2xl z-40 flex flex-col ${
-        isDragging ? '' : 'transition-all duration-300 ease-out'
-      }`}
-      style={{ height: `${displayHeight}dvh` }}
+      className={`
+        fixed bg-gray-900 shadow-2xl z-40 flex flex-col
+        ${isDesktop
+          ? 'top-0 bottom-0 left-0 w-[400px] rounded-r-2xl border-r border-gray-700'
+          : `bottom-0 left-0 right-0 rounded-t-3xl ${isDragging ? '' : 'transition-all duration-300 ease-out'}`
+        }
+      `}
+      style={isDesktop ? undefined : { height: `${displayHeight}dvh` }}
     >
-      {/* Large swipe area - easy to grab with thumb */}
-      <div
-        className="flex-shrink-0 cursor-grab active:cursor-grabbing touch-none select-none"
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleDragEnd}
-        onMouseDown={handleMouseDown}
-      >
-        {/* Visual handle + hint */}
-        <div className="flex flex-col items-center pt-2 pb-1">
-          <div className="w-16 h-2 bg-gray-600 rounded-full mb-1" />
-          {!isCollapsed && (
-            <div className="flex items-center gap-1 text-xs text-gray-500">
-              <ChevronDown className="w-3 h-3" />
-              <span>Swipe for map</span>
-            </div>
-          )}
-        </div>
+      {/* Large swipe area - mobile only */}
+      {!isDesktop && (
+        <div
+          className="flex-shrink-0 cursor-grab active:cursor-grabbing touch-none select-none"
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleDragEnd}
+          onMouseDown={handleMouseDown}
+        >
+          {/* Visual handle + hint */}
+          <div className="flex flex-col items-center pt-2 pb-1">
+            <div className="w-16 h-2 bg-gray-600 rounded-full mb-1" />
+            {!isCollapsed && (
+              <div className="flex items-center gap-1 text-xs text-gray-500">
+                <ChevronDown className="w-3 h-3" />
+                <span>Swipe for map</span>
+              </div>
+            )}
+          </div>
 
-        {/* Tap zones for quick snap */}
-        <div className="flex justify-center gap-3 pb-2">
-          {snapPoints.map((_, index) => (
-            <button
-              key={index}
-              onClick={(e) => {
-                e.stopPropagation();
-                snapTo(index);
-              }}
-              onTouchStart={(e) => e.stopPropagation()}
-              className={`w-2 h-2 rounded-full transition-colors ${
-                currentSnap === index ? 'bg-blue-500' : 'bg-gray-700'
-              }`}
-            />
-          ))}
+          {/* Tap zones for quick snap */}
+          <div className="flex justify-center gap-3 pb-2">
+            {snapPoints.map((_, index) => (
+              <button
+                key={index}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  snapTo(index);
+                }}
+                onTouchStart={(e) => e.stopPropagation()}
+                className={`w-2 h-2 rounded-full transition-colors ${
+                  currentSnap === index ? 'bg-blue-500' : 'bg-gray-700'
+                }`}
+              />
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Header content - interactive elements work normally */}
       {header && (
-        <div className="flex-shrink-0 px-4 pb-3 border-b border-gray-800">
+        <div className={`flex-shrink-0 px-4 border-b border-gray-800 ${isDesktop ? 'pt-4 pb-3' : 'pb-3'}`}>
           <div onMouseDown={(e) => e.stopPropagation()} onTouchStart={(e) => e.stopPropagation()}>
             {header}
           </div>

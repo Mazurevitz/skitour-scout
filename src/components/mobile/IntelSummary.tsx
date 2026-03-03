@@ -17,27 +17,12 @@ import { isSupabaseConfigured } from '@/lib/supabase';
 import { t } from '@/lib/translations';
 import type { CommunityReport } from '@/stores/useReportsStore';
 import type { ConditionReport } from '@/agents';
+import { getSnowConfig, getTrackConfig, LLM_TIMEOUT_MS } from '@/constants';
+import { isReportArchived, calculateReportWeight } from '@/utils/relevanceScore';
 
 interface IntelSummaryProps {
   region: string;
 }
-
-// Formatting helpers
-const SNOW_LABELS: Record<string, string> = {
-  puch: 'puch (powder)',
-  firn: 'firn (corn)',
-  cukier: 'cukier (sugar snow)',
-  szren: 'szreń (crust)',
-  beton: 'beton (hard/icy)',
-  kamienie: 'kamienie (rocks)',
-  mokry: 'mokry śnieg (wet)',
-};
-
-const TRACK_LABELS: Record<string, string> = {
-  przetarte: 'przetarte (tracked)',
-  zasypane: 'zasypane (fresh)',
-  lod: 'lód (icy)',
-};
 
 function formatCommunityReport(report: CommunityReport): string {
   const date = new Date(report.timestamp).toLocaleDateString('pl-PL', {
@@ -48,14 +33,14 @@ function formatCommunityReport(report: CommunityReport): string {
   let info = `${report.location} (${date}): `;
 
   if (report.type === 'ascent' && report.ascent) {
-    const track = TRACK_LABELS[report.ascent.trackStatus] || report.ascent.trackStatus;
-    info += `Podejście - trasa ${track}`;
+    const trackConfig = getTrackConfig(report.ascent.trackStatus);
+    info += `Podejście - trasa ${trackConfig.labelWithEnglish}`;
     if (report.ascent.gearNeeded.length > 0) {
       info += `, potrzebne: ${report.ascent.gearNeeded.join(', ')}`;
     }
   } else if (report.type === 'descent' && report.descent) {
-    const snow = SNOW_LABELS[report.descent.snowCondition] || report.descent.snowCondition;
-    info += `Zjazd - ${snow}, ${report.descent.qualityRating}/5`;
+    const snowConfig = getSnowConfig(report.descent.snowCondition);
+    info += `Zjazd - ${snowConfig.labelWithEnglish}, ${report.descent.qualityRating}/5`;
   }
 
   if (report.notes) {
@@ -100,12 +85,17 @@ export function IntelSummary({ region }: IntelSummaryProps) {
   // Check if LLM is available (Supabase configured)
   const llmAvailable = isSupabaseConfigured();
 
-  // Get all data
-  const communityReports = getRecentReports(48).filter(
+  // Get all data - only use non-archived reports for AI summary
+  const allReports = getRecentReports(48).filter(
     (r) =>
       r.region.toLowerCase().includes(region.toLowerCase()) ||
       region.toLowerCase().includes(r.region.toLowerCase())
   );
+
+  // Filter out archived reports (older than 2 weeks) and sort by weight
+  const communityReports = allReports
+    .filter((r) => !isReportArchived(r.timestamp))
+    .sort((a, b) => calculateReportWeight(b.timestamp) - calculateReportWeight(a.timestamp));
 
   const hasData = communityReports.length > 0 || webReports.length > 0;
 
@@ -166,7 +156,7 @@ Napisz bezpośrednie podsumowanie zaczynając od informacji o warunkach. BEZ wst
 
     try {
       const response = await llm.prompt(userPrompt, systemPrompt, {
-        signal: AbortSignal.timeout(30000),
+        signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
       });
 
       // Clean up response - remove any preamble patterns

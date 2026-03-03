@@ -8,6 +8,7 @@ import { Mountain, Clock, TrendingUp, AlertCircle, ChevronRight } from 'lucide-r
 import type { EvaluatedRoute } from '@/types';
 import { t } from '@/lib/translations';
 import { ResortDescentBadge } from './ResortConditions';
+import { getScoreColor, getScoreBg } from '@/utils/scoreUtils';
 
 interface RouteCardProps {
   route: EvaluatedRoute;
@@ -27,20 +28,6 @@ const difficultyLabels = {
   difficult: t.routes.difficulty.difficult,
   expert: t.routes.difficulty.expert,
 };
-
-function getScoreColor(score: number): string {
-  if (score >= 80) return 'text-green-400';
-  if (score >= 60) return 'text-yellow-400';
-  if (score >= 40) return 'text-orange-400';
-  return 'text-red-400';
-}
-
-function getScoreBg(score: number): string {
-  if (score >= 80) return 'bg-green-900/30';
-  if (score >= 60) return 'bg-yellow-900/30';
-  if (score >= 40) return 'bg-orange-900/30';
-  return 'bg-red-900/30';
-}
 
 const scoreBreakdownLabels: Record<string, string> = {
   weather: 'Pogoda',

@@ -14,42 +14,14 @@ import {
   ChevronDown,
   ChevronUp,
   Snowflake,
-  Sun,
   Cloud,
-  CloudSnow,
-  CloudRain,
-  CloudFog,
 } from 'lucide-react';
-import type { ElevationWeather, WeatherCondition } from '@/types';
+import type { ElevationWeather } from '@/types';
+import { WEATHER_ICONS, getWeatherLabel } from '@/constants';
 
 interface ElevationWeatherCardProps {
   data: ElevationWeather[];
   loading?: boolean;
-}
-
-const conditionIcons: Record<WeatherCondition, typeof Sun> = {
-  clear: Sun,
-  partly_cloudy: Cloud,
-  cloudy: Cloud,
-  snow: CloudSnow,
-  heavy_snow: CloudSnow,
-  rain: CloudRain,
-  fog: CloudFog,
-  wind: Wind,
-};
-
-function getConditionLabel(condition: WeatherCondition): string {
-  const labels: Record<WeatherCondition, string> = {
-    clear: 'Słonecznie',
-    partly_cloudy: 'Częściowe zachmurzenie',
-    cloudy: 'Pochmurno',
-    snow: 'Śnieg',
-    heavy_snow: 'Intensywny śnieg',
-    rain: 'Deszcz',
-    fog: 'Mgła',
-    wind: 'Wietrznie',
-  };
-  return labels[condition];
 }
 
 function getTempColor(temp: number): string {
@@ -62,110 +34,13 @@ function getTempColor(temp: number): string {
 }
 
 /**
- * Visual mountain card for desktop - shows temps vertically
+ * Expandable row for elevation weather
  */
-function VisualMountainCard({ data, showForecast }: { data: ElevationWeather; showForecast?: boolean }) {
-  const forecast = data.tomorrow;
-  const SummitIcon = conditionIcons[showForecast && forecast ? forecast.summit.condition : data.summit.condition];
-  const peakName = data.summit.name.replace(' (szczyt)', '').split(' → ').pop() || data.summit.name;
-
-  if (showForecast && forecast) {
-    return (
-      <div className="flex-1 bg-gray-800/70 border border-amber-700/30 rounded-xl p-4 flex flex-col items-center">
-        {/* Summit forecast */}
-        <div className="flex items-center gap-1">
-          <span className={`text-xl font-bold ${getTempColor(forecast.summit.tempMax)}`}>
-            {forecast.summit.tempMax}°
-          </span>
-          <span className="text-gray-500">/</span>
-          <span className={`text-lg ${getTempColor(forecast.summit.tempMin)}`}>
-            {forecast.summit.tempMin}°
-          </span>
-        </div>
-        <div className="text-xs text-gray-500">{data.summit.altitude}m</div>
-
-        {/* Mountain visual */}
-        <div className="relative my-2">
-          <Mountain className="w-12 h-12 text-amber-600" />
-          <SummitIcon className="w-4 h-4 text-gray-400 absolute -top-1 -right-1" />
-        </div>
-
-        {/* Valley forecast */}
-        <div className="text-xs text-gray-500">{data.valley.altitude}m</div>
-        <div className="flex items-center gap-1">
-          <span className={`text-base font-medium ${getTempColor(forecast.valley.tempMax)}`}>
-            {forecast.valley.tempMax}°
-          </span>
-          <span className="text-gray-600">/</span>
-          <span className={`text-sm ${getTempColor(forecast.valley.tempMin)}`}>
-            {forecast.valley.tempMin}°
-          </span>
-        </div>
-
-        {/* Peak name */}
-        <div className="text-sm text-white font-medium mt-2 text-center leading-tight">
-          {peakName}
-        </div>
-
-        {/* Wind & snow forecast */}
-        <div className="flex items-center gap-2 text-xs text-gray-500 mt-1">
-          <div className="flex items-center gap-1">
-            <Wind className="w-3 h-3" />
-            <span>{forecast.summit.windSpeed}</span>
-          </div>
-          {forecast.summit.snowfall > 0 && (
-            <div className="flex items-center gap-1 text-blue-400">
-              <Snowflake className="w-3 h-3" />
-              <span>+{forecast.summit.snowfall}cm</span>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex-1 bg-gray-800/70 border border-gray-700/50 rounded-xl p-4 flex flex-col items-center">
-      {/* Summit temp */}
-      <div className={`text-2xl font-bold ${getTempColor(data.summit.temperature)}`}>
-        {data.summit.temperature}°
-      </div>
-      <div className="text-xs text-gray-500">{data.summit.altitude}m</div>
-
-      {/* Mountain visual */}
-      <div className="relative my-2">
-        <Mountain className="w-12 h-12 text-blue-500" />
-        <SummitIcon className="w-4 h-4 text-gray-400 absolute -top-1 -right-1" />
-      </div>
-
-      {/* Valley temp */}
-      <div className="text-xs text-gray-500">{data.valley.altitude}m</div>
-      <div className={`text-lg font-medium ${getTempColor(data.valley.temperature)}`}>
-        {data.valley.temperature}°
-      </div>
-
-      {/* Peak name */}
-      <div className="text-sm text-white font-medium mt-2 text-center leading-tight">
-        {peakName}
-      </div>
-
-      {/* Wind at summit */}
-      <div className="flex items-center gap-1 text-xs text-gray-500 mt-1">
-        <Wind className="w-3 h-3" />
-        <span>{data.summit.windSpeed} km/h</span>
-      </div>
-    </div>
-  );
-}
-
-/**
- * Mobile expandable row
- */
-function MobileElevationRow({ data, showForecast }: { data: ElevationWeather; showForecast?: boolean }) {
+function ElevationRow({ data, showForecast }: { data: ElevationWeather; showForecast?: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const forecast = data.tomorrow;
-  const ValleyIcon = conditionIcons[showForecast && forecast ? forecast.valley.condition : data.valley.condition];
-  const SummitIcon = conditionIcons[showForecast && forecast ? forecast.summit.condition : data.summit.condition];
+  const ValleyIcon = WEATHER_ICONS[showForecast && forecast ? forecast.valley.condition : data.valley.condition];
+  const SummitIcon = WEATHER_ICONS[showForecast && forecast ? forecast.summit.condition : data.summit.condition];
   const peakName = data.summit.name.replace(' (szczyt)', '').split(' → ').pop() || data.summit.name;
 
   // Show forecast view
@@ -275,7 +150,7 @@ function MobileElevationRow({ data, showForecast }: { data: ElevationWeather; sh
               </div>
               <div className="flex items-center gap-1">
                 <Cloud className="w-3 h-3" />
-                <span>{getConditionLabel(forecast.summit.condition)}</span>
+                <span>{getWeatherLabel(forecast.summit.condition)}</span>
               </div>
             </div>
           </div>
@@ -378,7 +253,7 @@ function MobileElevationRow({ data, showForecast }: { data: ElevationWeather; sh
             )}
             <div className="flex items-center gap-1">
               <Cloud className="w-3 h-3" />
-              <span>{getConditionLabel(data.summit.condition)}</span>
+              <span>{getWeatherLabel(data.summit.condition)}</span>
             </div>
           </div>
         </div>
@@ -447,17 +322,10 @@ export function ElevationWeatherCard({ data, loading }: ElevationWeatherCardProp
         )}
       </div>
 
-      {/* Desktop: Visual mountain cards in a row */}
-      <div className="hidden md:flex md:gap-4">
+      {/* Expandable list - always column layout (works best in 400px sidebar) */}
+      <div className="space-y-2">
         {data.map((elevation, index) => (
-          <VisualMountainCard key={index} data={elevation} showForecast={showForecast} />
-        ))}
-      </div>
-
-      {/* Mobile: Expandable list */}
-      <div className="md:hidden space-y-2">
-        {data.map((elevation, index) => (
-          <MobileElevationRow key={index} data={elevation} showForecast={showForecast} />
+          <ElevationRow key={index} data={elevation} showForecast={showForecast} />
         ))}
       </div>
 

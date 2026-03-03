@@ -5,46 +5,21 @@
  */
 
 import {
-  Sun,
   Cloud,
-  CloudSnow,
-  CloudRain,
-  CloudFog,
   Wind,
   Eye,
   Droplets,
   Mountain,
 } from 'lucide-react';
-import type { WeatherData, WeatherCondition } from '@/types';
+import type { WeatherData } from '@/types';
 import { t } from '@/lib/translations';
+import { WEATHER_ICONS, WEATHER_LABELS } from '@/constants';
 
 interface WeatherCardProps {
   weather: WeatherData | null;
   loading?: boolean;
   locationName?: string;
 }
-
-const conditionIcons: Record<WeatherCondition, typeof Sun> = {
-  clear: Sun,
-  partly_cloudy: Cloud,
-  cloudy: Cloud,
-  snow: CloudSnow,
-  heavy_snow: CloudSnow,
-  rain: CloudRain,
-  fog: CloudFog,
-  wind: Wind,
-};
-
-const conditionLabels: Record<WeatherCondition, string> = {
-  clear: t.weather.conditions.clear,
-  partly_cloudy: t.weather.conditions.partlyCloudy,
-  cloudy: t.weather.conditions.cloudy,
-  snow: t.weather.conditions.snow,
-  heavy_snow: t.weather.conditions.heavySnow,
-  rain: t.weather.conditions.rain,
-  fog: t.weather.conditions.fog,
-  wind: t.weather.conditions.windy,
-};
 
 export function WeatherCard({ weather, loading, locationName }: WeatherCardProps) {
   if (loading) {
@@ -66,7 +41,7 @@ export function WeatherCard({ weather, loading, locationName }: WeatherCardProps
     );
   }
 
-  const ConditionIcon = conditionIcons[weather.condition];
+  const ConditionIcon = WEATHER_ICONS[weather.condition];
 
   return (
     <div className="bg-mountain-dark rounded-lg p-4">
@@ -84,7 +59,7 @@ export function WeatherCard({ weather, loading, locationName }: WeatherCardProps
           <div className="flex items-center gap-2">
             <ConditionIcon size={24} className="text-blue-400" />
             <span className="text-gray-300">
-              {conditionLabels[weather.condition]}
+              {WEATHER_LABELS[weather.condition]}
             </span>
           </div>
           <div className="text-4xl font-bold text-white mt-1">

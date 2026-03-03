@@ -1,117 +1,212 @@
 # SkitourScout
 
-A macOS Menu Bar application for ski touring route recommendations with real-time conditions analysis.
+A mobile-first PWA for ski touring route planning in the Polish mountains. Combines real-time weather, avalanche data, and community reports with an AI assistant that answers natural-language questions like *"Find me an easy route with good snow this weekend near Zakopane."*
 
-## Features
+## AI Features
 
-- **Avalanche Danger Indicator**: Real-time danger level (1-5) with trend and problem aspects
-- **Weather Data**: Temperature, wind, visibility, fresh snow, and freezing level
-- **Route Recommendations**: AI-evaluated routes with condition scores (0-100)
-- **Social Intel Feed**: Aggregated conditions reports from ski touring communities
-- **MCP Ready**: Integration-ready for Model Context Protocol tools
+### Trip Planning Assistant (RAG)
+The **Asystent** tab provides a conversational interface backed by Retrieval-Augmented Generation:
 
-## Quick Start
+```
+User query
+    │
+    ├── Semantic search (pgvector)     ← community reports, admin reports, route data
+    ├── Real-time context              ← current avalanche level, temperature, snow depth
+    └── LLM (Llama 3.1 8B / OpenRouter)
+            │
+            └── Polish-language response with route, conditions, hazards, gear
+```
+
+- **Embedding model**: OpenAI `text-embedding-3-small` (1536-dim vectors)
+- **Vector store**: Supabase pgvector with IVFFlat index
+- **LLM**: Llama 3.1 8B via OpenRouter (~$0.0001/query)
+- **Context window**: up to 8 most relevant report chunks per query
+- **Memory**: session-only (stateless between sessions)
+
+### Route Condition Scoring
+Every route gets a 0–100 condition score computed by the `SafetyAgent`, combining:
+- Avalanche danger level and aspect alignment
+- Fresh snow depth and temperature trend
+- Community report recency and relevance weight
+
+### Report Relevance Scoring
+Community reports decay in relevance over time, further adjusted by:
+- Weather similarity between report time and now (snow, temperature delta)
+- Report consistency with other nearby reports
+- Time since submission (full weight < 24h, archived > 14 days)
+
+### AI-Aggregated Intel Summary
+The **Intel Summary** card calls the `llm-proxy` edge function to synthesise all recent community and admin reports for the selected region into a short Polish-language briefing.
+
+### Facebook Report Ingestion
+An automated pipeline scrapes ski touring Facebook groups via Apify, then:
+1. `fb-scrape-trigger` — schedules Apify runs on a cron
+2. `fb-scrape-process` — filters posts for relevance with an LLM
+3. `parse-report` — extracts structured data (location, snow conditions, hazards, safety rating)
+4. `import-fb-reports` — inserts verified reports into `admin_reports`
+
+---
+
+## Other Features
+
+- **Avalanche indicator** — TOPR/GOPR danger level with problem aspects (Tatry only)
+- **Multi-elevation weather** — valley and summit conditions from Open-Meteo
+- **Resort conditions** — snow depth reference from nearby ski resorts
+- **Community reports** — user-submitted ascent/descent reports with offline queue
+- **Interactive map** — Leaflet with route overlays and clustered report markers
+- **Web search** — on-demand search via `search-proxy` edge function
+- **PWA** — installable, works offline with cached data
+
+---
+
+## Architecture
+
+```
+Frontend (React PWA)
+├── MobileDashboard          # 4-tab shell: Overview / Routes / Reports / Asystent
+├── agents/
+│   ├── WeatherAgent         # Open-Meteo API (multi-elevation)
+│   ├── SafetyAgent          # TOPR avalanche + route scoring
+│   ├── SocialIntelAgent     # Community report aggregation
+│   └── WebSearchAgent       # Web scraping proxy
+├── stores/
+│   ├── useAppStore          # Weather, routes, avalanche state
+│   └── useReportsStore      # Community + admin reports, IndexedDB persistence
+└── services/
+    ├── assistant.ts         # Chat API wrapper
+    ├── llm.ts               # LLM proxy wrapper
+    └── retryQueue.ts        # Offline operation queue
+
+Supabase Backend
+├── Edge Functions
+│   ├── chat-assistant       # RAG pipeline: embed → retrieve → LLM
+│   ├── embed-report         # OpenAI embeddings → pgvector storage
+│   ├── llm-proxy            # OpenRouter LLM calls (server-side key)
+│   ├── submit-report        # Community report ingestion + rate limiting
+│   ├── fb-scrape-trigger    # Apify scrape scheduler
+│   ├── fb-scrape-process    # LLM relevance filter + report parser
+│   ├── import-fb-reports    # Batch import verified FB reports
+│   ├── parse-report         # Structured data extraction from raw posts
+│   ├── search-proxy         # Web search relay
+│   └── topr-proxy           # TOPR avalanche API relay
+└── Database (PostgreSQL)
+    ├── reports              # Community-submitted reports
+    ├── admin_reports        # Verified reports from FB ingestion
+    ├── report_embeddings    # pgvector embeddings for RAG
+    ├── profiles             # User accounts
+    ├── fb_group_configs     # Facebook group scraping config
+    ├── scrape_jobs          # Scrape run tracking
+    └── scraped_posts        # Raw posts before processing
+```
+
+---
+
+## Setup
 
 ### Prerequisites
 
 - Node.js 18+
-- Rust (latest stable)
-- Tauri CLI: `cargo install tauri-cli`
-- macOS 10.15+
+- [Supabase CLI](https://supabase.com/docs/guides/cli)
+- Supabase project (free tier works)
+- OpenRouter API key (free tier available)
+- OpenAI API key (for embeddings — `text-embedding-3-small` is ~$0.001/1k reports)
 
-### Installation
+### Environment Variables
+
+Create `.env.local`:
+
+```env
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-key
+```
+
+### Supabase Secrets (for Edge Functions)
 
 ```bash
-# Install dependencies
+supabase secrets set OPENROUTER_API_KEY=sk-or-...
+supabase secrets set OPENAI_API_KEY=sk-...
+```
+
+### Database Setup
+
+```bash
+supabase db push
+```
+
+This applies all migrations including:
+- Initial schema (reports, profiles, rate limits)
+- Admin reports + Facebook ingestion tables
+- `report_embeddings` with pgvector and `match_reports()` similarity search function
+
+### Deploy Edge Functions
+
+```bash
+supabase functions deploy
+```
+
+### Development
+
+```bash
 npm install
-
-# Run in development mode
-npm run tauri:dev
+npm run dev
 ```
 
-### Build for Production
+### Production Build
 
 ```bash
-npm run tauri:build
+npm run build
 ```
 
-The built app will be in `src-tauri/target/release/bundle/`.
+---
 
-## Configuration
+## Backfilling Embeddings
 
-### LLM Provider
+After the first deploy, embed existing reports and route definitions:
 
-SkitourScout supports two LLM providers for AI-powered summarization:
+```bash
+# Embed all existing community reports
+curl -X POST https://your-project.supabase.co/functions/v1/embed-report \
+  -H "Authorization: Bearer $ANON_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"reports": [...]}'
 
-#### Option 1: Ollama (Recommended - Local & Free)
-
-1. Install Ollama: https://ollama.com/download
-2. Pull a model:
-   ```bash
-   ollama pull llama3.2
-   ```
-3. Start Ollama:
-   ```bash
-   ollama serve
-   ```
-4. In the app Settings, select "Ollama" and the model
-
-#### Option 2: OpenRouter (Cloud API - Free Tier Available)
-
-1. Get a free API key from [openrouter.ai/keys](https://openrouter.ai/keys)
-2. In the app Settings, select "OpenRouter"
-3. Enter your API key and choose a model (free models available)
-
-Settings are stored locally and never transmitted elsewhere.
-
-### MCP Integration (Optional)
-
-To enable Playwright-based scraping:
-
-1. Install the MCP server: `npm install -g @anthropic-ai/playwright-mcp`
-2. Enable in Settings under "MCP Servers"
-
-## Architecture
-
-SkitourScout uses a modular agent architecture:
-
-```
-Orchestrator
-├── WeatherAgent    (Open-Meteo API)
-├── SafetyAgent     (TOPR/GOPR avalanche data)
-└── SocialAgent     (FB/IG scraping)
+# Routes are static — embed once from src/data/routes.ts
 ```
 
-See [ARCHITECTURE.md](./ARCHITECTURE.md) for detailed documentation.
+New reports are embedded automatically when submitted via `submit-report`.
 
-## Project Structure
+---
 
-```
-skitour-scout/
-├── src/                    # React frontend
-│   ├── agents/             # Data fetching agents
-│   ├── components/         # UI components
-│   ├── stores/             # Zustand state
-│   └── types/              # TypeScript types
-├── src-tauri/              # Rust/Tauri backend
-├── ARCHITECTURE.md         # System architecture
-└── CONTRIBUTING.md         # How to contribute
-```
+## Cost Estimate
 
-## Contributing
+| Component | Cost |
+|-----------|------|
+| Embeddings (`text-embedding-3-small`) | ~$0.001 per 100 reports |
+| LLM chat (Llama 3.1 8B via OpenRouter) | ~$0.0001 per query |
+| LLM intel summary (same model) | ~$0.0002 per summary |
+| FB post filtering + parsing | ~$0.001 per 10 posts |
+| Supabase (pgvector, edge functions) | Free tier |
+| **Estimated total (100 reports, 500 queries/month)** | **< $1/month** |
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines on:
-- Adding new agents
-- Adding data sources
-- Code style guidelines
+---
 
 ## Tech Stack
 
-- **Frontend**: React 18 + TypeScript + Tailwind CSS
-- **Backend**: Tauri 2.0 (Rust)
-- **State**: Zustand
-- **Icons**: Lucide React
-- **APIs**: Open-Meteo (weather)
+| Layer | Technology |
+|-------|-----------|
+| Frontend | React 18, TypeScript, Tailwind CSS |
+| State | Zustand |
+| Map | Leaflet + react-leaflet |
+| Backend | Supabase (PostgreSQL + Edge Functions) |
+| Vector search | pgvector (IVFFlat index) |
+| Embeddings | OpenAI `text-embedding-3-small` |
+| LLM | Llama 3.1 8B via OpenRouter |
+| FB scraping | Apify |
+| PWA | Vite PWA + Workbox |
+| Auth | Supabase Auth (Google, Facebook, email) |
+| Offline | IndexedDB + retry queue |
+
+---
 
 ## License
 

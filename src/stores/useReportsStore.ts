@@ -14,6 +14,8 @@ import type { WeatherSnapshot, RelevanceFactors, ElevationWeather } from '../typ
 import {
   calculateRelevanceScore,
   calculateBaseRelevanceScore,
+  calculateReportWeight,
+  isReportArchived,
 } from '../utils/relevanceScore';
 
 /**
@@ -276,6 +278,174 @@ function migrateReport(report: CommunityReport): CommunityReport {
   };
 }
 
+// ============================================================
+// DEV MOCK DATA - Remove this entire section before committing
+// ============================================================
+const DEV_MOCK_ENABLED = true; // Set to false to disable mocks
+
+function createMockReports(): CommunityReport[] {
+  const now = Date.now();
+  const HOUR = 60 * 60 * 1000;
+  const DAY = 24 * HOUR;
+
+  return [
+    // Fresh report (2 hours ago) - full weight
+    {
+      id: 'mock-1',
+      type: 'descent',
+      location: 'Skrzyczne',
+      region: 'Beskid Śląski',
+      coordinates: { lat: 49.6847, lng: 19.0306 },
+      timestamp: new Date(now - 2 * HOUR).toISOString(),
+      descent: { snowCondition: 'puch', qualityRating: 5 },
+      notes: 'Świeży puch po nocnych opadach, świetne warunki!',
+      isOwn: false,
+      relevanceScore: 95,
+    },
+    // Recent report (1 day ago) - high weight
+    {
+      id: 'mock-2',
+      type: 'ascent',
+      location: 'Skrzyczne',
+      region: 'Beskid Śląski',
+      coordinates: { lat: 49.7181, lng: 19.0339 },
+      timestamp: new Date(now - 1 * DAY).toISOString(),
+      ascent: { trackStatus: 'przetarte', gearNeeded: ['foki'] },
+      notes: 'Trasa przetarta do szczytu',
+      isOwn: false,
+      relevanceScore: 82,
+    },
+    // 3 days ago - medium weight
+    {
+      id: 'mock-3',
+      type: 'descent',
+      location: 'Pilsko',
+      region: 'Beskid Śląski',
+      coordinates: { lat: 49.5456, lng: 19.3297 },
+      timestamp: new Date(now - 3 * DAY).toISOString(),
+      descent: { snowCondition: 'firn', qualityRating: 4 },
+      notes: 'Firn od rana, potem mięknie',
+      isOwn: false,
+      relevanceScore: 68,
+    },
+    // 5 days ago - lower weight
+    {
+      id: 'mock-4',
+      type: 'ascent',
+      location: 'Pilsko',
+      region: 'Beskid Śląski',
+      coordinates: { lat: 49.5617, lng: 19.3417 },
+      timestamp: new Date(now - 5 * DAY).toISOString(),
+      ascent: { trackStatus: 'zasypane', gearNeeded: ['foki', 'harszle'] },
+      notes: 'Trasa zasypana, trzeba tropić',
+      isOwn: false,
+      relevanceScore: 55,
+    },
+    // 8 days ago - minimum weight
+    {
+      id: 'mock-5',
+      type: 'descent',
+      location: 'Babia Góra',
+      region: 'Beskid Żywiecki',
+      coordinates: { lat: 49.5731, lng: 19.5294 },
+      timestamp: new Date(now - 8 * DAY).toISOString(),
+      descent: { snowCondition: 'szren', qualityRating: 3 },
+      notes: 'Szreń na eksponowanych miejscach',
+      isOwn: false,
+      relevanceScore: 42,
+    },
+    // 10 days ago - minimum weight
+    {
+      id: 'mock-6',
+      type: 'descent',
+      location: 'Kasprowy Wierch',
+      region: 'Tatry',
+      coordinates: { lat: 49.2317, lng: 19.9817 },
+      timestamp: new Date(now - 10 * DAY).toISOString(),
+      descent: { snowCondition: 'puch', qualityRating: 5 },
+      notes: 'Goryczkowa w świetnej formie',
+      isOwn: false,
+      relevanceScore: 35,
+    },
+    // 15 days ago - ARCHIVED (older than 2 weeks)
+    {
+      id: 'mock-7',
+      type: 'descent',
+      location: 'Skrzyczne',
+      region: 'Beskid Śląski',
+      coordinates: { lat: 49.6847, lng: 19.0306 },
+      timestamp: new Date(now - 15 * DAY).toISOString(),
+      descent: { snowCondition: 'beton', qualityRating: 2 },
+      notes: 'Stary raport - beton po odwilży',
+      isOwn: false,
+      relevanceScore: 15,
+    },
+    // 18 days ago - ARCHIVED
+    {
+      id: 'mock-8',
+      type: 'ascent',
+      location: 'Rysy',
+      region: 'Tatry',
+      coordinates: { lat: 49.1794, lng: 20.0881 },
+      timestamp: new Date(now - 18 * DAY).toISOString(),
+      ascent: { trackStatus: 'lod', gearNeeded: ['raki', 'harszle'] },
+      notes: 'Archiwalny raport - lód na grani',
+      isOwn: false,
+      relevanceScore: 10,
+    },
+    // 20 days ago - ARCHIVED (same location as fresh one - test clustering)
+    {
+      id: 'mock-9',
+      type: 'descent',
+      location: 'Skrzyczne',
+      region: 'Beskid Śląski',
+      coordinates: { lat: 49.6850, lng: 19.0310 }, // Slightly offset for clustering test
+      timestamp: new Date(now - 20 * DAY).toISOString(),
+      descent: { snowCondition: 'kamienie', qualityRating: 1 },
+      notes: 'Bardzo stary raport - kamienie',
+      isOwn: false,
+      relevanceScore: 5,
+    },
+    // CLUSTERING TEST: Multiple reports at exact same location
+    {
+      id: 'mock-cluster-1',
+      type: 'descent',
+      location: 'Pilsko - Szczyt',
+      region: 'Beskid Śląski',
+      coordinates: { lat: 49.5456, lng: 19.3297 }, // Same as mock-3
+      timestamp: new Date(now - 4 * HOUR).toISOString(),
+      descent: { snowCondition: 'puch', qualityRating: 4 },
+      notes: 'Test klastrowania - raport 1',
+      isOwn: false,
+    },
+    {
+      id: 'mock-cluster-2',
+      type: 'ascent',
+      location: 'Pilsko - Szczyt',
+      region: 'Beskid Śląski',
+      coordinates: { lat: 49.5458, lng: 19.3295 }, // Very close
+      timestamp: new Date(now - 6 * HOUR).toISOString(),
+      ascent: { trackStatus: 'przetarte', gearNeeded: ['foki'] },
+      notes: 'Test klastrowania - raport 2',
+      isOwn: false,
+    },
+    {
+      id: 'mock-cluster-3',
+      type: 'descent',
+      location: 'Pilsko - Szczyt',
+      region: 'Beskid Śląski',
+      coordinates: { lat: 49.5454, lng: 19.3299 }, // Very close
+      timestamp: new Date(now - 8 * HOUR).toISOString(),
+      descent: { snowCondition: 'firn', qualityRating: 5 },
+      notes: 'Test klastrowania - raport 3',
+      isOwn: false,
+    },
+  ];
+}
+// ============================================================
+// END DEV MOCK DATA
+// ============================================================
+
 export const useReportsStore = create<ReportsState>((set, get) => ({
   reports: [],
   adminReports: [],
@@ -299,11 +469,19 @@ export const useReportsStore = create<ReportsState>((set, get) => ({
         request.onerror = () => reject(request.error);
       });
 
-      const localReports = rawReports
+      let localReports = rawReports
         .map(migrateReport)
         .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
       db.close();
+
+      // DEV MOCK: Inject mock reports in development
+      if (DEV_MOCK_ENABLED && import.meta.env.DEV) {
+        console.log('📊 DEV: Injecting mock reports for testing');
+        const mockReports = createMockReports();
+        // Prepend mocks to any existing reports (mocks have 'mock-' prefix IDs)
+        localReports = [...mockReports, ...localReports.filter(r => !r.id.startsWith('mock-'))];
+      }
 
       set({ reports: localReports });
 
@@ -747,6 +925,10 @@ export const useReportsStore = create<ReportsState>((set, get) => ({
 
   getReportsForRegion: (region: string) => {
     const { reports } = get();
+    // Return all reports for "Wszystkie" (All)
+    if (region === 'Wszystkie') {
+      return reports;
+    }
     return reports.filter((r) =>
       r.region.toLowerCase().includes(region.toLowerCase()) ||
       region.toLowerCase().includes(r.region.toLowerCase())
@@ -783,46 +965,72 @@ export const useReportsStore = create<ReportsState>((set, get) => ({
     const aggregated: LocationConditions[] = [];
 
     for (const [location, reports] of byLocation) {
-      const ascentReports = reports.filter((r) => r.type === 'ascent');
-      const descentReports = reports.filter((r) => r.type === 'descent');
+      // Filter out archived reports for aggregation (older than 2 weeks)
+      // They will still be shown for reference but not counted in stats
+      const activeReports = reports.filter((r) => !isReportArchived(r.timestamp));
 
-      const conditionCounts = new Map<string, number>();
+      // If all reports are archived, skip this location in aggregation
+      if (activeReports.length === 0) {
+        continue;
+      }
+
+      const ascentReports = activeReports.filter((r) => r.type === 'ascent');
+      const descentReports = activeReports.filter((r) => r.type === 'descent');
+
+      // Use weighted counts for condition aggregation
+      const conditionWeights = new Map<string, number>();
       for (const r of descentReports) {
         const cond = r.descent?.snowCondition || r.condition || 'unknown';
-        conditionCounts.set(cond, (conditionCounts.get(cond) || 0) + 1);
+        const weight = calculateReportWeight(r.timestamp);
+        conditionWeights.set(cond, (conditionWeights.get(cond) || 0) + weight);
       }
-      const primaryCondition = [...conditionCounts.entries()]
+      const primaryCondition = [...conditionWeights.entries()]
         .sort((a, b) => b[1] - a[1])[0]?.[0] || 'unknown';
 
-      const ratings = descentReports
-        .map((r) => r.descent?.qualityRating || r.rating || 0)
-        .filter((r) => r > 0);
-      const avgRating = ratings.length > 0
-        ? ratings.reduce((sum, r) => sum + r, 0) / ratings.length
+      // Calculate weighted average rating
+      let weightedRatingSum = 0;
+      let totalRatingWeight = 0;
+      for (const r of descentReports) {
+        const rating = r.descent?.qualityRating || r.rating || 0;
+        if (rating > 0) {
+          const weight = calculateReportWeight(r.timestamp);
+          weightedRatingSum += rating * weight;
+          totalRatingWeight += weight;
+        }
+      }
+      const avgRating = totalRatingWeight > 0
+        ? weightedRatingSum / totalRatingWeight
         : 0;
 
-      const trackCounts = new Map<TrackStatus, number>();
+      // Use weighted counts for track status
+      const trackWeights = new Map<TrackStatus, number>();
       for (const r of ascentReports) {
         if (r.ascent?.trackStatus) {
-          trackCounts.set(r.ascent.trackStatus, (trackCounts.get(r.ascent.trackStatus) || 0) + 1);
+          const weight = calculateReportWeight(r.timestamp);
+          trackWeights.set(r.ascent.trackStatus, (trackWeights.get(r.ascent.trackStatus) || 0) + weight);
         }
       }
-      const trackStatus = [...trackCounts.entries()]
+      const trackStatus = [...trackWeights.entries()]
         .sort((a, b) => b[1] - a[1])[0]?.[0];
 
-      const gearCounts = new Map<AscentGear, number>();
+      // Use weighted counts for gear
+      const gearWeights = new Map<AscentGear, number>();
+      let totalAscentWeight = 0;
       for (const r of ascentReports) {
+        const weight = calculateReportWeight(r.timestamp);
+        totalAscentWeight += weight;
         for (const gear of r.ascent?.gearNeeded || []) {
-          gearCounts.set(gear, (gearCounts.get(gear) || 0) + 1);
+          gearWeights.set(gear, (gearWeights.get(gear) || 0) + weight);
         }
       }
-      const commonGear = [...gearCounts.entries()]
-        .filter(([, count]) => count >= ascentReports.length * 0.3)
+      const commonGear = [...gearWeights.entries()]
+        .filter(([, weight]) => totalAscentWeight > 0 && weight >= totalAscentWeight * 0.3)
         .map(([gear]) => gear);
 
+      // Only consider hazards from active (non-archived) reports
       const hazards: string[] = [];
       const hazardKeywords = ['lawina', 'lód', 'mgła', 'wiatr', 'kamienie', 'niebezp'];
-      for (const r of reports) {
+      for (const r of activeReports) {
         if (r.notes) {
           for (const kw of hazardKeywords) {
             if (r.notes.toLowerCase().includes(kw) && !hazards.includes(kw)) {
@@ -832,15 +1040,21 @@ export const useReportsStore = create<ReportsState>((set, get) => ({
         }
       }
 
-      // Calculate average relevance and find most relevant report
-      const relevanceScores = reports
-        .map((r) => r.relevanceScore)
-        .filter((s): s is number => s !== undefined);
-      const averageRelevance = relevanceScores.length > 0
-        ? Math.round(relevanceScores.reduce((sum, s) => sum + s, 0) / relevanceScores.length)
+      // Calculate weighted average relevance from active reports
+      let weightedRelevanceSum = 0;
+      let totalRelevanceWeight = 0;
+      for (const r of activeReports) {
+        if (r.relevanceScore !== undefined) {
+          const weight = calculateReportWeight(r.timestamp);
+          weightedRelevanceSum += r.relevanceScore * weight;
+          totalRelevanceWeight += weight;
+        }
+      }
+      const averageRelevance = totalRelevanceWeight > 0
+        ? Math.round(weightedRelevanceSum / totalRelevanceWeight)
         : 0;
 
-      const mostRelevantReport = [...reports]
+      const mostRelevantReport = [...activeReports]
         .filter((r) => r.relevanceScore !== undefined)
         .sort((a, b) => (b.relevanceScore || 0) - (a.relevanceScore || 0))[0];
 
@@ -849,10 +1063,10 @@ export const useReportsStore = create<ReportsState>((set, get) => ({
         region: reports[0].region,
         primaryCondition,
         averageRating: Math.round(avgRating * 10) / 10,
-        reportCount: reports.length,
+        reportCount: activeReports.length,
         ascentCount: ascentReports.length,
         descentCount: descentReports.length,
-        lastReport: reports[0].timestamp,
+        lastReport: activeReports[0].timestamp,
         trackStatus,
         commonGear,
         hazards,

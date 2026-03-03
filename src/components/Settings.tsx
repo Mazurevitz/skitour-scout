@@ -96,12 +96,20 @@ export function Settings({ onClose }: SettingsProps) {
               onChange={(e) => updateConfig({ region: e.target.value })}
               className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded-lg text-white text-sm focus:outline-none focus:border-blue-500"
             >
+              <option value="Wszystkie">Wszystkie regiony</option>
               <optgroup label="Beskidy">
-                <option value="Beskid Śląski">Beskid Śląski (Skrzyczne, Pilsko, Rycerzowa)</option>
-                <option value="Beskid Żywiecki">Beskid Żywiecki (Babia Góra)</option>
+                <option value="Beskidy">Beskidy</option>
+                <option value="Beskid Śląski">Beskid Śląski</option>
+                <option value="Beskid Żywiecki">Beskid Żywiecki</option>
+                <option value="Beskid Sądecki">Beskid Sądecki</option>
+                <option value="Gorce">Gorce</option>
+                <option value="Pieniny">Pieniny</option>
               </optgroup>
               <optgroup label="Tatry">
-                <option value="Tatry">Tatry (Kasprowy, Rysy, Świnica)</option>
+                <option value="Tatry">Tatry</option>
+              </optgroup>
+              <optgroup label="Sudety">
+                <option value="Karkonosze">Karkonosze</option>
               </optgroup>
             </select>
             <div className="mt-1 text-xs text-gray-500">
